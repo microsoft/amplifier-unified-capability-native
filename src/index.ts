@@ -88,7 +88,7 @@ export class NativeCapabilities {
   s.pending++;
   try {
    if(op==='runtime.control'){op=args.operation;arguments_=object(args.args??{});if(typeof op!=='string'||forbiddenFields.has(op))throw Error('Native operation required.');
-    if(['history.edit','steer','session.relocate'].includes(op)||['question.','schedule.','observation.','memory.','operations.','kernels.'].some(prefix=>op.startsWith(prefix)))throw Error('Use the admitted capability owned by this operation; generic native controls cannot bypass its lifecycle or receipts.');
+    if(['history.edit','history.revise','steer','steer.submit','session.relocate'].includes(op)||['question.','schedule.','observation.','memory.','operations.','kernels.'].some(prefix=>op.startsWith(prefix)))throw Error('Use the admitted capability owned by this operation; generic native controls cannot bypass its lifecycle or receipts.');
     if(op==='tool.invoke')arguments_={...arguments_,actor:context.origin??'ui'};
    }else{const {sessionId:_selector,...values}=arguments_;arguments_=values;}
    if(request.operation==='runtime.control'||['configuration.inspect','configuration.apply','configuration.toggle','configuration.cancel','bundle.preview','bundle.switch'].includes(op)){
