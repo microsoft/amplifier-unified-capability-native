@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-02",
+  "sourceRevision": "c1134eef3a0ba98dfdc2f7919b5f0db530335e51",
+  "relocatedCheckout": true,
+  "environment": {
+    "os": "macOS arm64",
+    "node": "25.2.1",
+    "python": "3.13.11"
+  },
+  "tests": {
+    "nodePassed": 9,
+    "skipped": 0,
+    "nativeAdministration": "One focused case with installed Core/Foundation ACP adapter; eight independent owner cases."
+  },
+  "limits": [
+    "Offline component fixtures and explicitly owned consumers; no production host or real-account adoption.",
+    "Linux Node22/24 CI configured; hosted outcomes are independent."
+  ]
+}
