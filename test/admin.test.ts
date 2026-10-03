@@ -134,7 +134,7 @@ test('service stop retains exact identity, excludes maintenance, and requires pl
   const second={...context,fenceId:'second-fence',commandId:'second-stop',serviceIdentity:{...identity}};assert.ok(await admin.quiescenceParticipant.acquire(second));await admin.close();
   await assert.rejects(replacement.quiescenceParticipant.reconcileRelease({...second,outcome:'unchanged',proof:{kind:'admission-refused'} as any}),/service identity|service lifecycle/);
   assert.equal((await replacement.inspectLifecycle()).intakeClosed,false,'Invalid reconciliation cannot acquire a new native gate');
-  const resumed={...refused,fenceId:second.fenceId,commandId:second.commandId,outcome:'ready' as const,instanceId:'new',serviceOutcome:'resumed' as const,observed:{...identity,instanceId:'new'},resumeCommandId:'resume',exitReceiptId:'exit',readyReceiptId:'ready'};
+  const {refusalReceiptId:_,...resumeBase}=refused;const resumed={...resumeBase,fenceId:second.fenceId,commandId:second.commandId,outcome:'ready' as const,instanceId:'new',serviceOutcome:'resumed' as const,observed:{...identity,instanceId:'new'},resumeCommandId:'resume',exitReceiptId:'exit',readyReceiptId:'ready'};
   await replacement.quiescenceParticipant.reconcileRelease({...second,outcome:'ready',proof:resumed});
   const rollback=await replacement.quiescenceParticipant.acquire({...second,fenceId:'rollback-fence',commandId:'preflight'});assert.ok(rollback);await rollback.release('unchanged',{kind:'admission-refused'});
   await assert.rejects(stat(join(home,'projects')));
