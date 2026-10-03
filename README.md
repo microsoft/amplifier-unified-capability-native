@@ -124,3 +124,5 @@ request accounting reaches zero and when negotiated native administration report
 that previously busy post-response work has settled. This uses the private
 `_amplifier/admin/idle` notification and introduces no periodic polling. The signal
 does not grant maintenance authority; always acquire the held participant again.
+
+The exact passive `voice.configuration` operation remains available on this held administration connection. Its credential/configure counterparts receive no such access. Disabled launcher credentials project explicit unavailability; passive media status must not request a credential.

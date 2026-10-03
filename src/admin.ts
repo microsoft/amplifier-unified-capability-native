@@ -13,7 +13,7 @@ export interface AdminOptions {
 }
 export interface AdminFenceContext {fenceId:string;commandId:string;purpose:'recovery'|'distribution-update';instanceId:string;dataScope:string;}
 export interface AdminReleaseProof {verified:true;fenceId:string;commandId:string;outcome:'unchanged'|'ready';instanceId:string;dataScope:string;receiptId:string;}
-const READS=new Set(['maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
+const READS=new Set(['voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
 const MAINTENANCE=new Set(['maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */

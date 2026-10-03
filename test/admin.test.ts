@@ -10,14 +10,14 @@ test('native held administration includes cross-process gate and exact recovery 
  const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace};
  const admin=new AdminConnection(options),other=new AdminConnection(options),context={fenceId:'root-fence',commandId:'recovery-job',purpose:'recovery' as const,instanceId:'same-host',dataScope:'owned'};
  try{
-  const held=await admin.quiescenceParticipant.acquire(context);assert.ok(held);assert.equal(held.ownerId,'native-admin');
+  const held=await admin.quiescenceParticipant.acquire(context);assert.ok(held);assert.equal(held.ownerId,'native-admin');const voice=await admin.perform('voice.configuration',{},{clientId:'browser'});assert.equal(voice.available,false);assert.equal(voice.credentialAccess,'disabled');await assert.rejects(admin.perform('voice.credential',{},{clientId:'browser'}),/intake is held/);
   await assert.rejects(admin.perform('modules.save',{module:'tool-never',section:'tools',config:{}},{clientId:'browser'}),/intake is held/);
   assert.equal(await other.quiescenceParticipant.acquire({...context,commandId:'other'}),null);
   await assert.rejects(admin.perform('maintenance.preview',{sessions:[],parts:['native-settings'],privateContentReviewed:true},{clientId:'browser'}),/intake is held/);
   await admin.withMaintenanceFence(context,async()=>{
    await assert.rejects(admin.perform('modules.save',{module:'tool-never',section:'tools',config:{}},{clientId:'trusted'}),/intake is held/);
    const preview=await admin.perform('maintenance.preview',{sessions:[],parts:['native-settings'],privateContentReviewed:true},{clientId:'trusted'});
-   const lease=await admin.perform('maintenance.acquire',{commandId:'native-acquire',previewHash:preview.previewHash},{clientId:'trusted'});assert.equal(lease.active,true);
+   const lease=await admin.perform('maintenance.acquire',{commandId:'native-acquire',previewHash:preview.previewHash},{clientId:'trusted'});assert.equal(lease.active,true);assert.equal((await admin.perform('voice.configuration',{},{clientId:'browser'})).configurable,false);await assert.rejects(admin.perform('voice.configure',{source:'private',apiKey:'must-not-write'},{clientId:'browser'}),/intake is held/);
    const snapshot=await admin.perform('maintenance.snapshot',{commandId:'native-snapshot',leaseId:lease.leaseId,previewHash:preview.previewHash},{clientId:'trusted'});assert.equal(snapshot.receipt.state,'succeeded');
    await admin.perform('maintenance.release',{leaseId:lease.leaseId},{clientId:'trusted'});
   });
