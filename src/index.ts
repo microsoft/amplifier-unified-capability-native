@@ -28,6 +28,7 @@ const READS=new Set(['configuration.inspect','configuration.providers','configur
 const forbiddenFields=new Set(['__proto__','prototype','constructor']);
 function object(value:unknown):Json {if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Expected object arguments.');return value as Json;}
 function copy<T>(value:T):T {return structuredClone(value);}
+function completeModeList(value:Json):boolean {return typeof value.available==='boolean'&&(value.active===null||typeof value.active==='string')&&Array.isArray(value.modes)&&value.modes.every((row:any)=>row&&typeof row==='object'&&!Array.isArray(row)&&typeof row.name==='string'&&typeof row.description==='string'&&typeof row.source==='string');}
 function scopeOf(channel:string) {if(channel==='ahp-root://' || channel==='host')return 'host';if(typeof channel!=='string'||!channel.startsWith('ahp-session:/')||channel.length>8192)throw Error('AHP session scope required.');return channel;}
 interface Cached {record:RecordValue;at:number;}
 interface ScopeState {records:Map<Topic,Cached>;results:Json;overlays:Partial<Record<Topic,Json>>;version:number;used:number;pending:number;}
@@ -155,6 +156,18 @@ export class NativeCapabilities {
      // read cannot make the completed mutation unknown or leave stale truth.
      delete s.results['configuration.providers'];
      try{s.results['configuration.providers']=await this.native(scope,'configuration.providers');}catch{s.results['configuration.providers']={available:false,reason:'refresh-unavailable'};}
+    }
+    if(op==='mode.set'||op==='mode.clear'){
+     // Native mode mutations return a full list after checkpoint. Keep that
+     // authoritative projection while preserving the original action result.
+     // A partial peer response cannot replace a complete catalog or leave its
+     // old active mode visible; refresh only this selected runtime, never retry.
+     if(completeModeList(result))s.results['mode.list']=copy(result);
+     else{
+      delete s.results['mode.list'];
+      try{const modes=await this.native(scope,'mode.list');if(!completeModeList(modes))throw Error('Incomplete mode list');s.results['mode.list']=modes;}
+      catch{s.results['mode.list']={available:false,reason:'refresh-unavailable'};}
+     }
     }
     if(op.startsWith('goals.'))s.results['goals.get']=result;if(op==='budget.set')s.results['budget.get']=result;if(op.startsWith('task.')&&!['task.receipt','task.history'].includes(op))s.results['task.get']=result;if(op.startsWith('capacity.'))s.results['capacity.get']=result;
     if(op==='configuration.providers')s.overlays['provider-catalog']={...(s.overlays['provider-catalog']??{})};
