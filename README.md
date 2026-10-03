@@ -272,8 +272,8 @@ an approval-backed generic tool for both authenticated origins. At native
 `f530e541` the first approved call does not settle: `control` retains the worker
 command lock while `approval` requires the same lock. The reproduction refuses to
 retry, times out after 15 seconds, retains its owned state and reports its native
-session ID. It is visibly skipped by default while the native owner repairs that
-runtime boundary. Ordinary actual-runtime checks qualify goals, unlimited turn
+session ID. It is visibly skipped by default; enable it explicitly when qualifying a
+sealed native successor. Ordinary actual-runtime checks qualify goals, unlimited turn
 budgets, context limits, catalog/usage, mode absence and local-only export refusal;
 no inference is requested. A local fixture source has no portable Git equivalent,
 so the actual export test expects native refusal and verifies no activation.

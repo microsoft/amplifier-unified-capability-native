@@ -49,7 +49,7 @@ test('installed Core/Foundation native controls preserve selected session, user/
   assert.equal(calls.filter(row=>row.operation==='bundle.switch').length,0);
   assert.equal((await action('context.clear')).result.cleared,true);
   await t.test('approved tool invocation settles through the installed ACP peer',{skip:process.env.AMPLIFIER_TEST_NATIVE_APPROVAL!=='1'},async()=>{
-  for(const origin of ['ui','agent'] as const){const tool=await action('tool.invoke',{name:'fixture_permit',arguments:{},actor:origin==='ui'?'agent':'ui'},origin);assert.equal(tool.result.success,true);assert.equal(calls.at(-1).args.actor,origin);}
+  for(const origin of ['ui','agent'] as const){const tool=await action('tool.invoke',{name:'fixture_permit',arguments:{},actor:origin==='ui'?'agent':'ui'},origin);assert.equal(tool.result.result.success,true);assert.equal(tool.result.result.output.decision,'allow');assert.equal(calls.at(-1).args.actor,origin);}
    assert.equal(approvalCount,2);
   });
  }catch(error){throw Object.assign(error as Error,{nativeDiagnostic:stderr});}
