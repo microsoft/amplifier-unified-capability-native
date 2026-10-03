@@ -9,6 +9,8 @@ export interface AdminOptions {
  /** Resolve via trusted host context, never args.cwd. */
  resolveWorkspace:(context:Context)=>Promise<string>|string;
  timeoutMs?:number;
+ /** Passive initialization deadline, independent of a later effect timeout. */
+ initializationTimeoutMs?:number;
  ownerId?:string;
  onMayBeIdle?:()=>void;
 }
@@ -41,7 +43,14 @@ export class AdminConnection {
    let bytes=0;const guard=new Transform({transform(chunk:Buffer,_encoding,callback){for(const byte of chunk){bytes=byte===10?0:bytes+1;if(bytes>2*1024*1024){callback(Error('Native admin frame exceeds 2 MiB'));return;}}callback(null,chunk);}});
    guard.on('error',()=>process_.kill());process_.stdout.pipe(guard);
    this.client=new ClientSideConnection(()=>({extNotification:async(method,params)=>{if(method==='_amplifier/admin/idle'&&this.idleSupported&&params.version===1)this.idle();},sessionUpdate:async()=>{throw Error('Admin connection cannot own session updates.');},requestPermission:async()=>({outcome:{outcome:'cancelled' as const}})}),ndJsonStream(Writable.toWeb(process_.stdin) as WritableStream<Uint8Array>,Readable.toWeb(guard) as ReadableStream<Uint8Array>));
-   const init=await this.client.initialize({protocolVersion:1,clientCapabilities:{_meta:{'amplifier.dev/native':{version:1}}},clientInfo:{name:'amplifier-unified-native-capabilities',version:'0.1.0'}});
+   let initializationTimer:ReturnType<typeof setTimeout>|undefined;
+   let init;
+   try{
+    const deadline=this.options.initializationTimeoutMs??2000;
+    if(!Number.isSafeInteger(deadline)||deadline<1||deadline>10000)throw Error('Native administration initialization deadline must be 1 to 10000 ms.');
+    init=await Promise.race([this.client.initialize({protocolVersion:1,clientCapabilities:{_meta:{'amplifier.dev/native':{version:1}}},clientInfo:{name:'amplifier-unified-native-capabilities',version:'0.1.0'}}),new Promise<never>((_,reject)=>{initializationTimer=setTimeout(()=>reject(Error('Passive native administration initialization deadline exceeded.')),deadline);})]);
+   }catch(error){this.process?.kill('SIGKILL');await this.close();throw error;}finally{if(initializationTimer)clearTimeout(initializationTimer);}
+
    const native=init.agentCapabilities?._meta?.['amplifier.dev/native'] as Json|undefined;
    if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Object.assign(Error('Agent has no launcher-enabled native administration v1 capability.'),{data:{executed:false,replayed:false,reason:'native-admin-unavailable'}});}
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
@@ -166,5 +175,5 @@ export class AdminConnection {
    await this.release(context,outcome,proof);
   },
  };}
- async close(){this.closed=true;if(this.held)this.held.phase='unknown';if(!this.process||this.process.exitCode!==null)return;this.process.stdin.end();await new Promise<void>(resolve=>{const timer=setTimeout(()=>{this.process?.kill();resolve();},3000);this.process!.once('exit',()=>{clearTimeout(timer);resolve();});});}
+ async close(){this.closed=true;if(this.held)this.held.phase='unknown';if(!this.process||this.process.exitCode!==null||this.process.signalCode!==null)return;this.process.stdin.end();await new Promise<void>(resolve=>{const timer=setTimeout(()=>{this.process?.kill();resolve();},3000);this.process!.once('exit',()=>{clearTimeout(timer);resolve();});});}
 }

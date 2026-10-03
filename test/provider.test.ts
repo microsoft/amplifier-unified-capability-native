@@ -181,3 +181,12 @@ test('passive receipt recovery retains native refusal, unknown and needs-model w
   assert.deepEqual(recovered.updates,[]);assert.deepEqual(recovered.invalidate,[]);
  }
 });
+
+test('passive admin metadata failure remains unavailable without poisoning unrelated controls or schemas',async()=>{
+ let metadataCalls=0;const provider=createNativeCapabilities({nativeAdmin:async()=>{throw Error('Unavailable admin must not fabricate a catalog');},nativeBundleCommands:async()=>{metadataCalls++;throw Error('Unavailable peer');},nativeBundleReceipt:async()=>{throw Error('No negotiation');},nativeControl:async(_scope:string,op:string)=>op==='capabilities'?{controls:['goals.get']}:{goal:'healthy other engine'}});
+ assert.equal(await provider.negotiateBundleCommands(),false);assert.deepEqual(provider.bundleCommandAvailability(),{state:'unavailable',reason:'native-admin-negotiation-unavailable'});
+ assert.equal(provider.manifest.actions['bundle.receipt'],undefined);await provider.actionSchemas();
+ const healthy=await provider.action(action('runtime-control','runtime.control',{operation:'goals.get'}),context);assert.equal(healthy.result.goal,'healthy other engine');
+ const bundles=await provider.read(request('bundles'));assert.deepEqual(bundles.data,{nativeAdministration:{state:'unavailable',reason:'native-admin-negotiation-unavailable'}});assert.equal(bundles.data.bundles,undefined);assert.equal(metadataCalls,1);
+ const restored=createNativeCapabilities({nativeAdmin:async()=>({}),nativeControl:async()=>({}),nativeBundleCommands:async()=>bundleMetadata,nativeBundleReceipt:async()=>({receipt:null})});assert.equal(await restored.negotiateBundleCommands(),true);assert.equal(restored.bundleCommandAvailability().state,'ready');assert.ok(restored.manifest.actions['bundle.receipt']);
+});

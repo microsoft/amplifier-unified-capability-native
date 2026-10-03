@@ -35,6 +35,9 @@ interface ScopeState {records:Map<Topic,Cached>;results:Json;overlays:Partial<Re
 export class NativeCapabilities {
  readonly manifest:{version:1;topics:Record<string,{uri:string;version:1;watch:true}>;actions:Record<string,{topic:string;operation:string;method:typeof METHOD}>};
  private bundleNegotiation?:Promise<boolean>;private bundleCommands=false;
+ private bundleAvailability:{state:'unnegotiated'|'ready'|'unsupported'|'unavailable';reason?:string}={state:'unnegotiated'};
+ /** Availability of this initialized peer, not a permanent statement about its configured name. */
+ bundleCommandAvailability=()=>copy(this.bundleAvailability);
  private scopes=new Map<string,ScopeState>();private inflight=new Map<string,Promise<RecordValue>>();private revision=0;
  constructor(private options:Options){
   const actions:Record<string,{topic:string;operation:string;method:typeof METHOD}>={};
@@ -46,8 +49,17 @@ export class NativeCapabilities {
  negotiateBundleCommands=async():Promise<boolean>=>{
   if(!this.options.nativeBundleCommands)return false;
   if(!this.bundleNegotiation)this.bundleNegotiation=(async()=>{
-   const m=await this.options.nativeBundleCommands!();
+   let m:Json|undefined;
+   try{m=await this.options.nativeBundleCommands!();}
+   catch{
+    this.bundleAvailability={state:'unavailable',reason:'native-admin-negotiation-unavailable'};
+    // A passive connection failure cannot poison schemas or controls owned by a
+    // different healthy engine. This instance's advertisement stays stable;
+    // explicit reconstruction after restoration negotiates a fresh connection.
+    return false;
+   }
    this.bundleCommands=m?.version===1&&m.commandId==='optional-legacy-required-for-receipt'&&m.passiveReceipt===true&&m.replayUnknown===false&&m.maxResultBytes===524288&&m.adminReceipt==='bundle.receipt'&&m.activationReceipt==='_amplifier/bundle/receipt'&&m.activation==='bundle.switch'&&['bundle.save','bundle.export','bundle.default'].every(op=>m.adminOperations?.includes(op));
+   this.bundleAvailability={state:this.bundleCommands?'ready':'unsupported'};
    if(this.bundleCommands&&this.options.nativeAdmin&&this.options.nativeBundleReceipt)this.manifest.actions['bundle.receipt']={topic:'bundles',operation:'bundle.receipt',method:METHOD};
    return this.bundleCommands;
   })();
@@ -69,6 +81,8 @@ export class NativeCapabilities {
  private async native(scope:string,operation:string,args:Json={}) {if(scope==='host')throw Error('Select an Amplifier session for runtime controls.');return this.options.nativeControl(scope,operation,args);}
  private runtime(scope:string,s:ScopeState,result?:Json){return {runtimeControl:{[scope]:{...s.results,...result}}};}
  private async load(topic:Topic,scope:string,context:Context,s:ScopeState):Promise<Json>{
+  await this.negotiateBundleCommands();
+  if(this.bundleAvailability.state==='unavailable'&&(topic==='bundles'||topic==='provider-catalog'||topic==='configuration'&&scope==='host'))return {nativeAdministration:copy(this.bundleAvailability)};
   if(topic==='configuration'){
    if(scope!=='host'){const value=await this.native(scope,'configuration.inspect');const {registry,...overlay}=s.overlays.configuration??{};return {configuration:{sessionId:scope,...overlay,...value},configurationRevision:s.version,...(registry?{registry}:{})};}
    if(!this.options.nativeAdmin)throw Error('This host has no native administration capability.');
