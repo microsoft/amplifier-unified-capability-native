@@ -266,6 +266,37 @@ process restart is unqualified. Host command status/detail does not retain that
 body. Inspecting current settings or mounted state does not prove the original
 command's outcome and never authorizes replay.
 
+### Negotiated native bundle receipts (successor binding)
+
+Trusted composition can supply `nativeBundleCommands`, an asynchronous resolver
+of the configured engine's actual initialization metadata, and
+`nativeBundleReceipt(session, childCommandId)`, a separate passive selected-session
+route. Await `negotiateBundleCommands()` before registering the synchronous
+manifest. `AdminConnection.bundleCommandCapabilities()` reads only its negotiated
+metadata. Receipt support requires the native `bundleCommands` v1 declaration;
+older peers retain delivered-response behavior and do not advertise recovery.
+The passive callback must route `_amplifier/bundle/receipt` with trusted native
+session/workspace identity, never invoke active `nativeControl` or start a worker.
+
+On supported peers, save/export/default/switch receive bounded deterministic
+child command IDs bound to the original outer identity, selected scope and effect.
+Save and activation have distinct identities. `bundle.receipt` accepts
+`{operation, commandId}` for the original outer operation and identity, and returns
+exact native children as `result.receipts.command` and, for selected-session saves,
+`result.receipts.activation`. An absent native receipt remains `null`; unknown,
+refused and confirmed needs-model results remain native outcomes. Inspection
+returns no topic updates or invalidations and never dispatches a mutation.
+This bridge stores no durable result copies. Current implementation checks cover
+binding and refusal; positive installed successor recovery qualification is pending.
+
+`AMPLIFIER_BUNDLE_COMMANDS_PYTHON` selects the additive native successor for
+`test/bundle-receipts.integration.test.ts`. The fixture injects reply loss after
+actual native save or activation, then discards an outer delivered response and
+restarts both native and administration processes. A fresh bridge must recover
+exact native child receipts without opening another session or calling active
+runtime controls. Passing this fixture establishes only its recorded installed
+peer and owned synthetic bundle, not host transport/browser/deployment acceptance.
+
 For an independent package consumer, set `AMPLIFIER_NATIVE_CAPABILITY_MODULE`
 to the installed package's absolute `dist/index.js` path when running the tests.
 Provider fixture tests and the actual installed-native presentation test both

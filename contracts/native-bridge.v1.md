@@ -39,10 +39,15 @@ to the sealed implementation source; they are checks, not universal parity claim
 
 Hosts authorize channels and workspaces before calling these ports, retain the
 original command identity, and distinguish a delivered completed-save response
-from its activation outcome. Exact original result recovery remains a desired
-CS4/HP6 obligation, not qualified behavior: the current host retains command
-status/detail, not the saved/activation body. A topic cache is not a durable
-receipt store. Consumers keep
+from its activation outcome. The additive bundleCommands v1 binding delegates
+exact child results to native-owned receipts; host status/detail and topic caches
+cannot substitute for those results. Composition must resolve actual negotiated
+metadata asynchronously and bind a separate passive selected-session receipt
+port; a static caller capability assertion or active runtime-control fallback
+cannot establish support. Save and activation use distinct stable child identities.
+Passive receipt inspection returns native unknown/refusal/needs-model outcomes
+without replay or inferred completion. Positive installed successor recovery
+qualification remains pending. Consumers keep
 native configuration revisions opaque and require explicit stale-draft review.
 
 Composition binds every administration callback to the same genuine connection

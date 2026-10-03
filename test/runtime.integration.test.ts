@@ -70,7 +70,7 @@ test('installed Core/Foundation native controls preserve selected session, user/
      assert.equal(scope,uri);return deadline(client.extMethod('_amplifier/native',{sessionId:native.sessionId,operation,args}) as Promise<any>);
     }});
     assert.equal(replacement.manifest.actions['bundle.receipt'],undefined);
-    await assert.rejects(replacementAdmin.perform('bundle.receipt',{commandId:'save'},context),/Unknown native administration operation/);
+    await assert.rejects(replacementAdmin.perform('bundle.receipt',{commandId:'save'},context),/Native bundle receipts are unavailable/);
     const projection=await replacement.read({uri:'amplifier-capability://native/bundles',topic:'bundles',scope:uri,clientId:context.clientId});
     assert.equal(projection.data.saved,undefined);assert.equal(projection.data.activation,undefined);
     assert.equal(await readFile(savedUri,'utf8'),body);

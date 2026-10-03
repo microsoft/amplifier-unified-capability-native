@@ -20,12 +20,12 @@ const IMPORTS=new Set(['history.import.begin','history.import.chunk','history.im
 const CACHES=new Set(['maintenance.cache.scan','maintenance.cache.page','maintenance.cache.preview','maintenance.cache.clear']);
 const APP_RESETS=new Set(['maintenance.appReset.prepare','maintenance.appReset.apply','maintenance.appReset.inspect','maintenance.appReset.restore']);
 const CAPTURES=new Set(['maintenance.capture.acquire','maintenance.capture.inspect','maintenance.capture.release']);
-const READS=new Set(['maintenance.appReset.inspect','maintenance.capture.inspect','maintenance.cache.page','maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.manifest','permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
+const READS=new Set(['bundle.receipt','maintenance.appReset.inspect','maintenance.capture.inspect','maintenance.cache.page','maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.manifest','permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
 const MAINTENANCE=new Set([...APP_RESETS,...CAPTURES,...CACHES,'maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.preview','maintenance.restore.manifest','maintenance.restore.apply','maintenance.restore.reconcile','maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
- private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private calls=0;
+ private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private calls=0;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
  private releases=new Map<string,string>();
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
@@ -44,6 +44,7 @@ export class AdminConnection {
    const init=await this.client.initialize({protocolVersion:1,clientCapabilities:{_meta:{'amplifier.dev/native':{version:1}}},clientInfo:{name:'amplifier-unified-native-capabilities',version:'0.1.0'}});
    const native=init.agentCapabilities?._meta?.['amplifier.dev/native'] as Json|undefined;
    if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Object.assign(Error('Agent has no launcher-enabled native administration v1 capability.'),{data:{executed:false,replayed:false,reason:'native-admin-unavailable'}});}
+   this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
    this.maintenanceMetadata=native.admin.maintenance?structuredClone(native.admin.maintenance):undefined;
    this.historyImportSupported=native.admin.historyImport?.version===1&&native.admin.historyImport?.staged===true;
    this.permissionsSupported=native.admin.permissions?.version===1&&native.admin.permissions?.cas===true&&native.admin.permissions?.receipt===true;
@@ -63,6 +64,10 @@ export class AdminConnection {
  async maintenanceCapabilities():Promise<Json|undefined>{
   this.calls++;try{await this.start();return this.maintenanceMetadata?structuredClone(this.maintenanceMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }
+ /** Passive metadata from this connection's initialized engine, not a client assertion. */
+ async bundleCommandCapabilities():Promise<Json|undefined>{
+  this.calls++;try{await this.start();return this.bundleMetadata?structuredClone(this.bundleMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
  perform=(operation:string,args:Json,context:Context):Promise<Json>=>this.invoke(operation,args,context);
  /** Trusted composition only: product authorizes this existing workspace; native launcher roots revalidate it. */
  importHistory=(operation:string,args:Json,workingDirectory:string):Promise<Json>=>{
@@ -77,6 +82,8 @@ export class AdminConnection {
   this.calls++;
   try{
    const cwd=importWorkspace??await this.options.resolveWorkspace(context);await this.start();
+   if(['bundle.save','bundle.export','bundle.default'].includes(operation)&&args.commandId!==undefined&&(this.bundleMetadata?.version!==1||this.bundleMetadata?.passiveReceipt!==true))throw Object.assign(Error('Native bundle command identities are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'bundle-command-unavailable'}});
+   if(operation==='bundle.receipt'&&(this.bundleMetadata?.version!==1||this.bundleMetadata?.passiveReceipt!==true))throw Object.assign(Error('Native bundle receipts are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'bundle-receipt-unavailable'}});
    if(operation.startsWith('permissions.')){
     if(args.sessionId!==undefined&&args.sessionId!==context.session?.uri||'workspace' in args||'cwd' in args)throw Object.assign(Error('Permission selectors differ from trusted session authority.'),{data:{executed:false,replayed:false,reason:'permissions-authority'}});
     if(!['permissions.get','permissions.save','permissions.receipt'].includes(operation)||!this.permissionsSupported)throw Object.assign(Error('Native scoped file-access settings are unavailable.'),{data:{executed:false,replayed:false,reason:'permissions-unavailable'}});

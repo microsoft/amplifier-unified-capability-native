@@ -138,3 +138,46 @@ test('generic tool authority always comes from authenticated user or agent conte
  for(const origin of ['ui','agent'] as const)await provider.action(action('runtime-control','runtime.control',{operation:'tool.invoke',args:{name:'fixture',arguments:{},actor:origin==='ui'?'agent':'ui'}}),{...context,origin});
  assert.deepEqual(actors,['ui','agent']);
 });
+
+const bundleMetadata={version:1,commandId:'optional-legacy-required-for-receipt',adminOperations:['bundle.default','bundle.export','bundle.save'],activation:'bundle.switch',adminReceipt:'bundle.receipt',activationReceipt:'_amplifier/bundle/receipt',passiveReceipt:true,maxResultBytes:524288,replayUnknown:false};
+test('negotiated bundle children remain independently inspectable after activation reply loss and provider reconstruction',async()=>{
+ const stored=new Map<string,any>(),effects:string[]=[],queries:string[]=[];
+ const nativeAdmin=async(op:string,args:any)=>{
+  if(op==='bundle.receipt'){queries.push(args.commandId);return {receipt:stored.get(args.commandId)??null};}
+  assert.equal(op,'bundle.save');effects.push(op);
+  const result={saved:{name:'exact'},export:{content:'original bytes'}};
+  stored.set(args.commandId,{version:1,commandId:args.commandId,operation:op,status:'succeeded',createdAt:1,completedAt:2,replayed:false,result});return result;
+ };
+ const nativeBundleReceipt=async(_scope:string,id:string)=>{queries.push(id);return {receipt:stored.get(id)??null};};
+ const options={nativeAdmin,nativeBundleReceipt,nativeBundleCommands:async()=>bundleMetadata,nativeControl:async(_scope:string,op:string,args:any)=>{
+  if(op==='configuration.inspect')return {plan:{},bundle:'original'};if(op==='configuration.exportResources')return {};
+  assert.equal(op,'bundle.switch');effects.push(op);stored.set(args.commandId,{version:1,commandId:args.commandId,operation:op,status:'succeeded',createdAt:2,completedAt:3,replayed:false,result:{bundle:'exact',applied:true}});throw Error('Activation reply lost');
+ }};
+ const first=createNativeCapabilities(options);assert.equal(first.manifest.actions['bundle.receipt'],undefined);
+ await first.negotiateBundleCommands();assert.ok(first.manifest.actions['bundle.receipt']);
+ const saved=await first.action(action('bundles','bundle.save',{name:'exact'}),context);assert.equal(saved.result.activation.state,'unknown');
+ const replacement=createNativeCapabilities({...options,nativeControl:async()=>{throw Error('Receipt must not start active runtime');}});
+ const recovered=await replacement.action(action('bundles','bundle.receipt',{operation:'bundle.save',commandId:'command-1'}),context);
+ assert.equal(recovered.result.receipts.command.result.export.content,'original bytes');assert.equal(recovered.result.receipts.activation.result.applied,true);
+ assert.notEqual(queries[0],queries[1]);assert.deepEqual(effects,['bundle.save','bundle.switch']);assert.deepEqual(recovered.updates,[]);assert.deepEqual(recovered.invalidate,[]);
+});
+test('older peers and unconfigured passive transport cannot advertise recovery; mismatched native receipt fails closed',async()=>{
+ for(const metadata of [undefined,{...bundleMetadata,replayUnknown:true}]){
+  const p=createNativeCapabilities({nativeAdmin:async()=>({}),nativeControl:async()=>{throw Error('No active runtime');},nativeBundleCommands:async()=>metadata,nativeBundleReceipt:async()=>({receipt:null})});
+  await p.negotiateBundleCommands();assert.equal(p.manifest.actions['bundle.receipt'],undefined);
+  await assert.rejects(p.action(action('bundles','bundle.receipt',{operation:'bundle.save',commandId:'original'}),context),/not advertised/);
+ }
+ const noPassive=createNativeCapabilities({nativeAdmin:async()=>({}),nativeControl:async()=>({}),nativeBundleCommands:async()=>bundleMetadata});await noPassive.negotiateBundleCommands();assert.equal(noPassive.manifest.actions['bundle.receipt'],undefined);
+ const wrong=createNativeCapabilities({nativeAdmin:async()=>({receipt:{version:1,commandId:'foreign',operation:'bundle.save',status:'succeeded',replayed:false,result:{}}}),nativeControl:async()=>{throw Error('No active runtime');},nativeBundleCommands:async()=>bundleMetadata,nativeBundleReceipt:async()=>({receipt:null})});
+ await assert.rejects(wrong.action(action('bundles','bundle.receipt',{operation:'bundle.save',commandId:'original'}),context),/exact child/);
+});
+test('passive receipt recovery retains native refusal, unknown and needs-model without inferred completion or activation',async()=>{
+ for(const status of ['refused','unknown','needs-model'] as const){
+  const provider=createNativeCapabilities({nativeBundleCommands:async()=>bundleMetadata,nativeControl:async()=>{throw Error('Recovery cannot dispatch');},nativeAdmin:async(_op:string,args:any)=>({receipt:{version:1,commandId:args.commandId,operation:'bundle.save',status:'succeeded',createdAt:1,completedAt:2,replayed:false,result:{saved:{name:'original'}}}}),nativeBundleReceipt:async(_scope:string,id:string)=>({receipt:{version:1,commandId:id,operation:'bundle.switch',status:status==='needs-model'?'succeeded':status,createdAt:2,replayed:false,...(status==='unknown'?{reason:'bundle-command-outcome-unknown'}:status==='refused'?{completedAt:3,executed:false,reason:'native-refusal'}:{completedAt:3,result:{requiresModelChoice:true,applied:false,preview:{exact:true}}})}})});
+  const recovered=await provider.action(action('bundles','bundle.receipt',{operation:'bundle.save',commandId:'original'}),context);
+  const activation=recovered.result.receipts.activation;
+  assert.equal(activation.status,status==='needs-model'?'succeeded':status);assert.equal(activation.replayed,false);
+  if(status==='needs-model')assert.equal(activation.result.applied,false);else assert.equal(activation.result,undefined);
+  assert.deepEqual(recovered.updates,[]);assert.deepEqual(recovered.invalidate,[]);
+ }
+});
