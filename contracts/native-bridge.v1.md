@@ -114,3 +114,38 @@ incomplete read replaces stale mode truth with an explicit unavailable
 projection. It never retries the completed mutation. Provider regression checks
 cover load/set/clear for UI and agent origins and partial-response read failure;
 actual mode-hook/browser acceptance belongs to the assembled consumer.
+
+## Reviewed history-preserving context clear
+
+Hosts await `negotiateContextClear()` before manifest composition. All three
+`runtime-control` actions — `context.clear.review`, `context.clear`, and
+`context.clear.receipt` — require actual negotiated `native.contextClear` v1
+metadata and an injected passive receipt port. Missing, older or unavailable
+peers leave them unadvertised; optional negotiation failure cannot poison an
+unrelated engine. Generic `runtime.control` clear/review paths always refuse
+before dispatch, including on older peers.
+
+Review takes no arguments. Apply takes only the exact reviewed history and
+control revisions; the original public action envelope supplies command identity.
+The bridge derives a stable native command from the AHP session scope and that
+original identity. Native owns canonical history, preserved segments/events,
+explicit goal clearing, active-task refusal, revision checks, and exact outcomes.
+The native `context-clear.v1.json` and `context-clear-receipt.v1.json` schemas
+own closed wire objects and the 16 KiB result/receipt bound.
+
+`nativeContextClear` supplies actual initialization metadata;
+`nativeContextReceipt` resolves the authenticated original AHP scope to an
+admitted configured native engine, immutable native session ID and canonical
+history workspace. A relocated execution workspace or changed current default
+cannot replace that authority. `AdminConnection.contextClearCapabilities()` and
+`readContextReceipt({sessionId,cwd,commandId})` are passive adapter ports; receipt
+inspection must not admit a session, start a worker or invoke `nativeControl`.
+
+Receipt results retain the original public command identity and native DTO under
+`receipt`, including its derived native command ID. Null means no receipt,
+not proof of an outcome. Unknown never acquires synthetic results or a current
+state classification. Refused and succeeded outcomes retain their native fields.
+Receipt inspection has no projection updates or invalidations. Apply failures
+remain the original native error; no current-state read or mutation retry follows
+an uncertain outcome. A completed apply response is preserved verbatim with the
+original public command metadata.

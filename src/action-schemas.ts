@@ -1,5 +1,8 @@
 /** Scoped public action schemas; session authority is trusted host context. */
 export const ACTION_SCHEMAS:Record<string,{description:string;schema:Record<string,any>}>= {
+ "context.clear.review":{description:"Review history-preserving context clear for the selected session",schema:{type:"object",properties:{},additionalProperties:false}},
+ "context.clear":{description:"Clear reviewed session context while preserving canonical history and events",schema:{type:"object",properties:{expectedHistoryRevision:{type:"string",pattern:"^[0-9a-f]{64}$"},expectedControlRevision:{type:"string",pattern:"^[0-9a-f]{64}$"}},required:["expectedHistoryRevision","expectedControlRevision"],additionalProperties:false}},
+ "context.clear.receipt":{description:"Inspect the exact original context clear without repeating it or opening a worker",schema:{type:"object",properties:{commandId:{type:"string",minLength:1,maxLength:256}},required:["commandId"],additionalProperties:false}},
   "providers.credentials": {
     "description": "Check provider credential environment availability without revealing values",
     "schema": {

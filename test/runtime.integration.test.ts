@@ -81,7 +81,7 @@ test('installed Core/Foundation native controls preserve selected session, user/
   await assert.rejects(provider.action({channel:uri,topic:'bundles',operation:'bundle.save',args:{sessionId:uri,name:'bridge-saved',description:'Owned installed consumer'},commandId:'save',version:1},context),/local source without a portable Git equivalent/);
   assert.equal(calls.filter(row=>row.operation==='bundle.switch').length,0);
   }
-  assert.equal((await action('context.clear')).result.cleared,true);
+  await assert.rejects(action('context.clear'),/generic native controls/); // Legacy unreviewed clear is no longer admitted.
   await t.test('approved tool invocation settles through the installed ACP peer',{skip:process.env.AMPLIFIER_TEST_NATIVE_APPROVAL!=='1'},async()=>{
   for(const origin of ['ui','agent'] as const){const tool=await action('tool.invoke',{name:'fixture_permit',arguments:{},actor:origin==='ui'?'agent':'ui'},origin);assert.equal(tool.result.result.success,true);assert.equal(tool.result.result.output.decision,'allow');assert.equal(calls.at(-1).args.actor,origin);}
    assert.equal(approvalCount,2);
