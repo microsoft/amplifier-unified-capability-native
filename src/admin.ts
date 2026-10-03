@@ -3,6 +3,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {Readable,Writable,Transform} from 'node:stream';
 import {ClientSideConnection,ndJsonStream} from '@agentclientprotocol/sdk';
 import type {Context,Json} from './index.js';
+import {serviceIdentity,sameIdentity,validateServiceRelease,type ServiceIdentity,type ServiceReleaseFields} from './service-lifecycle.js';
 export interface AdminOptions {
  command:string;args?:string[];env?:Record<string,string>;cwd:string;
  /** Resolve via trusted host context, never args.cwd. */
@@ -11,15 +12,17 @@ export interface AdminOptions {
  ownerId?:string;
  onMayBeIdle?:()=>void;
 }
-export interface AdminFenceContext {fenceId:string;commandId:string;purpose:'recovery'|'distribution-update';instanceId:string;dataScope:string;}
+export interface AdminFenceContext {fenceId:string;commandId:string;purpose:'recovery'|'distribution-update'|'service-stop';instanceId:string;dataScope:string;serviceIdentity?:ServiceIdentity;}
 export interface AdminReleaseProof {verified:true;fenceId:string;commandId:string;outcome:'unchanged'|'ready';instanceId:string;dataScope:string;receiptId:string;}
+export type AdminServiceReleaseProof=AdminReleaseProof&ServiceReleaseFields;
+type ReleaseProof=AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'};
 const IMPORTS=new Set(['history.import.begin','history.import.chunk','history.import.preview','history.import.commit','history.import.receipt']);
 const READS=new Set(['voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
 const MAINTENANCE=new Set(['maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
- private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private calls=0;
+ private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private calls=0;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
  constructor(private options:AdminOptions){}
@@ -41,6 +44,7 @@ export class AdminConnection {
    this.voicePreferencesSupported=native.admin.voice?.preferences?.version===1&&native.admin.voice?.preferences?.cas===true&&native.admin.voice?.preferences?.receipt===true;
    this.idleSupported=native.admin.lifecycle?.idleNotification===true;
    this.lifecycleSupported=native.admin.lifecycle?.version===1&&native.admin.lifecycle?.heldIntake===true&&native.admin.lifecycle?.crossProcessWriterFence===true;
+   this.serviceStopSupported=native.admin.lifecycle?.serviceStop?.version===1;
   })();
   return this.starting;
  }
@@ -81,28 +85,33 @@ export class AdminConnection {
   const cwd=await this.options.resolveWorkspace({clientId:''});return this.rpc('_amplifier/admin/lifecycle',{cwd,operation:'inspect',args:{}});
  }
  private async acquire(context:Readonly<AdminFenceContext>){
-  context={fenceId:context.fenceId,commandId:context.commandId,purpose:context.purpose,instanceId:context.instanceId,dataScope:context.dataScope};
+  context={fenceId:context.fenceId,commandId:context.commandId,purpose:context.purpose,instanceId:context.instanceId,dataScope:context.dataScope,...(context.serviceIdentity!==undefined?{serviceIdentity:serviceIdentity(context.serviceIdentity)}:{})};
   if(this.held||this.calls||this.closed)return null;
   for(const key of ['fenceId','commandId','purpose','instanceId','dataScope'] as const)if(typeof context[key]!=='string'||!context[key]||context[key].length>200)throw Error('Exact bounded administration quiescence context required');
-  if(!['recovery','distribution-update'].includes(context.purpose))throw Error('Unknown administration quiescence purpose');
+  if(!['recovery','distribution-update','service-stop'].includes(context.purpose))throw Error('Unknown administration quiescence purpose');
+  if(context.purpose==='service-stop'){if(!context.serviceIdentity||context.serviceIdentity.instanceId!==context.instanceId||context.serviceIdentity.dataScope!==context.dataScope)throw Error('Service identity must bind the administration context');}
+  else if(context.serviceIdentity)throw Error('Service identity requires service-stop purpose');
   this.held={context:{...context},phase:'checking'};
   try{
    // Passive process startup is necessary to prove no orphan native admin writer
    // still owns the cross-process home gate. This never opens an ACP session.
-   await this.start();if(!this.lifecycleSupported){this.held=undefined;return null;}
+   await this.start();if(!this.lifecycleSupported||(context.purpose==='service-stop'&&!this.serviceStopSupported)){this.held=undefined;return null;}
    const cwd=await this.options.resolveWorkspace({clientId:''});
    const result=await this.rpc('_amplifier/admin/lifecycle',{cwd,operation:'acquire',args:{...context}});
    if(result.acquired!==true){if(result.executed===false&&result.intakeClosed===false){this.held=undefined;return null;}throw Error('Native administration acquisition is uncertain');}
-   if(!result.lease?.leaseId||!result.adminInstanceId||Object.entries(context).some(([key,value])=>result.lease[key]!==value))throw Error('Native administration lease does not bind this coordinator fence');
+   if(!result.lease?.leaseId||!result.adminInstanceId||Object.entries(context).some(([key,value])=>key==='serviceIdentity'?!sameIdentity(serviceIdentity(result.lease[key]),value as ServiceIdentity):result.lease[key]!==value))throw Error('Native administration lease does not bind this coordinator fence');
    this.held={context:{...context},phase:'held',leaseId:result.lease.leaseId,adminInstanceId:result.adminInstanceId};
-   return {ownerId:this.options.ownerId??'native-admin',fenceId:context.fenceId,release:(outcome:'unchanged'|'ready'|'unknown',proof?:AdminReleaseProof|{kind:'admission-refused'})=>this.release(context,outcome,proof)};
+   return {ownerId:this.options.ownerId??'native-admin',fenceId:context.fenceId,release:(outcome:'unchanged'|'ready'|'unknown',proof?:ReleaseProof)=>this.release(context,outcome,proof,true)};
   }catch(error){if(this.held)this.held.phase='unknown';throw error;}
  }
- private async release(context:Readonly<AdminFenceContext>,outcome:'unchanged'|'ready'|'unknown',proof?:AdminReleaseProof|{kind:'admission-refused'}){
+ private async release(context:Readonly<AdminFenceContext>,outcome:'unchanged'|'ready'|'unknown',proof?:ReleaseProof,liveRollback=false){
   const held=this.held;if(!held||held.context.fenceId!==context.fenceId||held.context.commandId!==context.commandId)throw fenced();
+  if(['fenceId','commandId','purpose','instanceId','dataScope'].some(key=>(held.context as any)[key]!== (context as any)[key])||(held.context.serviceIdentity&&!sameIdentity(held.context.serviceIdentity,serviceIdentity(context.serviceIdentity))))throw fenced();
   if(outcome==='unknown'){held.phase='unknown';return;}
   if(this.calls)throw fenced();
-  if(!(proof&&'kind' in proof&&proof.kind==='admission-refused')){
+  const rollback=liveRollback&&held.phase==='held'&&outcome==='unchanged'&&proof&&Object.keys(proof).length===1&&'kind' in proof&&proof.kind==='admission-refused';
+  if(!rollback&&context.purpose==='service-stop')validateServiceRelease(context,outcome,proof);
+  else if(!rollback){
    const value=proof as AdminReleaseProof|undefined;
    if(!value||value.verified!==true||value.fenceId!==context.fenceId||value.commandId!==context.commandId||value.dataScope!==context.dataScope||value.outcome!==outcome||!value.receiptId||(outcome==='unchanged'&&value.instanceId!==context.instanceId))throw Error('Authenticated exact host release proof required');
   }
@@ -114,10 +123,12 @@ export class AdminConnection {
   }catch(error){held.phase='unknown';throw error;}
  }
  get quiescenceParticipant(){return {
-  id:this.options.ownerId??'native-admin',acquire:(context:Readonly<AdminFenceContext>)=>this.acquire(context),
-  reconcileRelease:async(context:Readonly<AdminFenceContext>&{outcome:'unchanged'|'ready';proof:AdminReleaseProof})=>{
+  id:this.options.ownerId??'native-admin',serviceStop:{version:1 as const},acquire:(context:Readonly<AdminFenceContext>)=>this.acquire(context),
+  reconcileRelease:async(input:Readonly<AdminFenceContext>&{outcome:'unchanged'|'ready';proof:AdminReleaseProof|AdminServiceReleaseProof})=>{
+   const {outcome,proof,...context}=input;
+   if(context.purpose==='service-stop')validateServiceRelease(context,outcome,proof);
    if(!this.held){const lease=await this.acquire(context);if(!lease)throw Error('Replacement admin cannot prove native writer quiescence');}
-   await this.release(context,context.outcome,context.proof);
+   await this.release(context,outcome,proof);
   },
  };}
  async close(){this.closed=true;if(this.held)this.held.phase='unknown';if(!this.process||this.process.exitCode!==null)return;this.process.stdin.end();await new Promise<void>(resolve=>{const timer=setTimeout(()=>{this.process?.kill();resolve();},3000);this.process!.once('exit',()=>{clearTimeout(timer);resolve();});});}

@@ -116,3 +116,33 @@ test('shared voice preference CAS and exact passive receipt are independent from
   await lease.release('unchanged',{kind:'admission-refused'});await assert.rejects(stat(join(home,'keys.env')));await assert.rejects(stat(join(home,'projects')));
  }finally{await admin.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('service stop retains exact identity, excludes maintenance, and requires platform-specific release proof',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'admin-service-')),workspace=join(dir,'workspace'),home=join(dir,'home');await mkdir(workspace);await mkdir(home);const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],adminMaintenance:true,workerCommand:['/impossible']}));
+ const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace};const admin=new AdminConnection(options),replacement=new AdminConnection(options);
+ const identity={installationId:'installed',dataScope:'scope',ownerId:'platform',instanceId:'old',releaseDigest:'a'.repeat(64)},context={fenceId:'service-fence',commandId:'stop',purpose:'service-stop' as const,instanceId:'old',dataScope:'scope',serviceIdentity:{...identity}};
+ const refused={verified:true as const,fenceId:context.fenceId,commandId:context.commandId,outcome:'unchanged' as const,instanceId:'old',dataScope:'scope',receiptId:'platform-refusal',kind:'service-lifecycle' as const,serviceOutcome:'stop-refused' as const,expected:{...identity},observed:{...identity},refusalReceiptId:'refusal'};
+ try{
+  assert.deepEqual(admin.quiescenceParticipant.serviceStop,{version:1});
+  const live=await admin.quiescenceParticipant.acquire(context);assert.ok(live);context.serviceIdentity.ownerId='mutated-caller';
+  assert.equal((await admin.inspectLifecycle()).lease.serviceIdentity.ownerId,'platform');
+  await assert.rejects(admin.withMaintenanceFence(context,async()=>{}),/intake is held/);
+  await assert.rejects(live.release('unchanged',{verified:true,...context,outcome:'unchanged',receiptId:'legacy-proof'}),/service identity|service lifecycle/);
+  await assert.rejects(live.release('ready',{...refused,outcome:'ready',serviceOutcome:'resumed'}),/service lifecycle/);
+  assert.equal((await admin.inspectLifecycle()).intakeClosed,true);await live.release('unchanged',refused);
+  const second={...context,fenceId:'second-fence',commandId:'second-stop',serviceIdentity:{...identity}};assert.ok(await admin.quiescenceParticipant.acquire(second));await admin.close();
+  await assert.rejects(replacement.quiescenceParticipant.reconcileRelease({...second,outcome:'unchanged',proof:{kind:'admission-refused'} as any}),/service identity|service lifecycle/);
+  assert.equal((await replacement.inspectLifecycle()).intakeClosed,false,'Invalid reconciliation cannot acquire a new native gate');
+  const resumed={...refused,fenceId:second.fenceId,commandId:second.commandId,outcome:'ready' as const,instanceId:'new',serviceOutcome:'resumed' as const,observed:{...identity,instanceId:'new'},resumeCommandId:'resume',exitReceiptId:'exit',readyReceiptId:'ready'};
+  await replacement.quiescenceParticipant.reconcileRelease({...second,outcome:'ready',proof:resumed});
+  const rollback=await replacement.quiescenceParticipant.acquire({...second,fenceId:'rollback-fence',commandId:'preflight'});assert.ok(rollback);await rollback.release('unchanged',{kind:'admission-refused'});
+  await assert.rejects(stat(join(home,'projects')));
+ }finally{await admin.close();await replacement.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('older admin peers are refused before service-stop acquisition is dispatched',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'admin-old-service-')),audit=join(dir,'effects');
+ const script=`const readline=require('node:readline'),fs=require('node:fs');readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='initialize')process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{_meta:{'amplifier.dev/native':{version:1,admin:{version:1,lifecycle:{version:1,heldIntake:true,crossProcessWriterFence:true}}}}}}})+'\\n');else fs.appendFileSync(process.argv[1],m.method+'\\n');});`;
+ const admin=new AdminConnection({command:process.execPath,args:['-e',script,audit],cwd:dir,resolveWorkspace:()=>dir});
+ try{const serviceIdentity={installationId:'install',dataScope:'scope',ownerId:'platform',instanceId:'instance',releaseDigest:'digest'};assert.equal(await admin.quiescenceParticipant.acquire({fenceId:'fence',commandId:'stop',purpose:'service-stop',instanceId:'instance',dataScope:'scope',serviceIdentity}),null);await assert.rejects(stat(audit));}finally{await admin.close();await rm(dir,{recursive:true,force:true});}
+});

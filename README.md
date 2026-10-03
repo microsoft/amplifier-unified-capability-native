@@ -155,3 +155,16 @@ Credential setup remains separate. `fallbackBehavior: 'stored-only'` explicitly
 means automatic transport fallback is not implemented. Unadvertised native
 history import or voice preferences are refused before dispatch with typed
 `data.executed:false`, rather than inventing an uncertain effect.
+
+Service-stop support is additive and explicitly declared by
+`AdminConnection.quiescenceParticipant.serviceStop = {version:1}`. It also requires
+the actual configured native peer to negotiate `admin.lifecycle.serviceStop`;
+older peers refuse before acquisition. `AdminFenceContext` retains
+`serviceIdentity:{installationId,dataScope,ownerId,instanceId,releaseDigest}` only
+for `purpose:'service-stop'`. That gate permits no `withMaintenanceFence` work.
+External release/reconciliation requires `AdminServiceReleaseProof`, with exact
+expected/observed identity and authenticated platform stop-refused or resumed
+receipts. The host verifies those receipts; this bridge only checks exact binding.
+Only the original live acquired lease supports pre-effect admission rollback.
+Reconciliation cannot substitute the `admission-refused` shortcut. Process loss
+retains uncertainty, and a new process or open OS lock alone never proves success.
