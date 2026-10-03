@@ -13,3 +13,38 @@ test('mounted provider sign-in uses native public control, standalone account se
 
 test('action discovery is lazy and forbidden input/control bypasses never dispatch',async()=>{const {provider,calls}=fixture();const schemas=await provider.actionSchemas();assert.equal(calls.length,0);assert.ok(schemas['runtime.control'].schema.properties.operation);assert.equal(schemas['voice.credential'],undefined);for(const operation of ['history.edit','history.revise','steer','steer.submit','schedule.submit','observation.submit','operations.submit','kernels.execute','memory.consolidate','session.relocate'])await assert.rejects(provider.action(action('runtime-control','runtime.control',{operation,args:{}}),context),/generic native controls/);assert.equal(calls.length,0);});
 test('admin schema catalog covers only advertised actions',async()=>{const provider=createNativeCapabilities({nativeControl:async()=>({}),nativeAdmin:async()=>({})});const schemas=await provider.actionSchemas();assert.deepEqual(Object.keys(schemas).sort(),Object.keys(provider.manifest.actions).sort());assert.equal(schemas['voice.configure'],undefined);});
+
+test('configuration apply retains native CAS and classifies only explicit conflict as no effect',async()=>{
+ const old='a'.repeat(64),current='b'.repeat(64),calls:any[]=[];
+ const provider=createNativeCapabilities({nativeControl:async(_scope,op,args)=>{
+  calls.push([op,args]);
+  if(op==='capabilities')return {controls:['configuration.apply','configuration.inspect']};
+  if(op==='configuration.inspect')return {configurationRevision:current,plan:{}};
+  if(args.expectedConfigurationRevision===old)throw Object.assign(new Error('Review the newer mount plan'),{data:{reason:'configuration-conflict',executed:false,configurationRevision:current}});
+  if(args.config.transport)throw Object.assign(new Error('Transport ended'),{data:{outcome:'unknown'}});
+  return {remounted:true,configuration:{configurationRevision:current,plan:args.config}};
+ }});
+ const schemas=await provider.actionSchemas();assert.ok(schemas['configuration.apply'].schema.required.includes('expectedConfigurationRevision'));
+ const missing=await provider.action(action('configuration','configuration.apply',{config:{}}),context);
+ assert.equal(missing.accepted,false);assert.equal(missing.result.reason,'configuration-revision-required');assert.ok(!calls.some(([op])=>op==='configuration.apply'));
+ const conflict=await provider.action(action('configuration','configuration.apply',{config:{},expectedConfigurationRevision:old}),context);
+ assert.equal(conflict.accepted,false);assert.equal(conflict.result.executed,false);assert.equal(conflict.result.configurationRevision,current);assert.deepEqual(conflict.invalidate,['configuration']);
+ const applied=await provider.action(action('configuration','configuration.apply',{config:{value:1},expectedConfigurationRevision:current}),context);
+ assert.equal(applied.accepted,true);assert.equal(applied.updates.find(u=>u.topic==='configuration')!.data.configuration.configurationRevision,current);
+ assert.equal(calls.find(([op,args])=>op==='configuration.apply'&&args.config.value===1)[1].expectedConfigurationRevision,current);
+ await assert.rejects(provider.action(action('configuration','configuration.apply',{config:{transport:true},expectedConfigurationRevision:current}),context),/Transport ended/);
+});
+
+test('fresh configuration plan and CAS revision supersede prior bundle overlay',async()=>{
+ const previous='a'.repeat(64),current='b'.repeat(64);
+ const provider=createNativeCapabilities({nativeControl:async(_scope,op)=>{
+  if(op==='capabilities')return {controls:['configuration.inspect','bundle.switch']};
+  if(op==='bundle.switch')return {bundle:'older',configuration:{configurationRevision:previous,plan:{name:'older'}}};
+  return {configurationRevision:current,plan:{name:'current'}};
+ }});
+ await provider.action(action('bundles','bundle.switch',{bundle:'older'}),context);
+ const inspected=await provider.action(action('configuration','configuration.inspect'),context);
+ const record=inspected.updates.find(u=>u.topic==='configuration')!.data.configuration;
+ assert.equal(record.configurationRevision,current);assert.equal(record.plan.name,'current');
+ assert.equal(record.bundlePreview,undefined);
+});

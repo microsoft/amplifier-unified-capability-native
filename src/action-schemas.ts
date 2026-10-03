@@ -841,10 +841,15 @@ export const ACTION_SCHEMAS:Record<string,{description:string;schema:Record<stri
         },
         "whenIdle": {
           "type": "boolean"
+        },
+        "expectedConfigurationRevision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       },
       "required": [
-        "config"
+        "config",
+        "expectedConfigurationRevision"
       ],
       "additionalProperties": false
     }

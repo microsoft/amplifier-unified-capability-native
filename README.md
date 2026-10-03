@@ -72,3 +72,15 @@ host admission/lifecycle owner. Native adapter support alone does not claim
 Unified interactive parity for an unregistered owner. Tool invocation receives
 actor provenance from authenticated context, never the argument body. The native
 runtime retains its own generic-tool and approval-hook rechecks.
+
+Full mount-plan edits require the native inspect result's opaque
+`configuration.configurationRevision` hash as `expectedConfigurationRevision`.
+This differs from the outer numeric topic `configurationRevision`. The bridge
+passes the exact base through without refreshing/rebasing it and keeps fresh
+native plan/revision fields authoritative over older bundle overlays. Native
+explicit `configuration-conflict` plus `executed:false` becomes `accepted:false`
+with `result:{applied:false,executed:false,reason,configurationRevision,message}`;
+the configuration topic is invalidated lazily and the host records a known
+refusal. Other transport/native errors still propagate as uncertain outcomes.
+The client preserves a dirty draft and requires explicit review before another
+apply command. Missing base revisions are known refusals before native mutation.

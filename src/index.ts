@@ -93,7 +93,16 @@ export class NativeCapabilities {
    }else{const {sessionId:_selector,...values}=arguments_;arguments_=values;}
    if(request.operation==='runtime.control'||['configuration.inspect','configuration.apply','configuration.toggle','configuration.cancel','bundle.preview','bundle.switch'].includes(op)){
     const caps=await this.native(scope,'capabilities');if(![...(caps.controls??[]),'capabilities',...(caps.workerOperations??[]),'steer'].includes(op))throw Error(`The connected agent does not support ${op}.`);
-    result=await this.native(scope,op,arguments_);s.results[op]=result;
+    if(op==='configuration.apply'&&!/^[a-f0-9]{64}$/.test(arguments_.expectedConfigurationRevision??''))return {accepted:false,updates:[],invalidate:[],result:{applied:false,executed:false,reason:'configuration-revision-required',message:'Inspect and review the current mount plan before applying a configuration draft.'},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+    try{result=await this.native(scope,op,arguments_);}catch(error){
+     const data=(error as {data?:Json}).data;
+     if(op==='configuration.apply'&&data?.reason==='configuration-conflict'&&data.executed===false){
+      this.invalidate(scope,['configuration']);
+      return {accepted:false,updates:[],invalidate:['configuration'],result:{applied:false,executed:false,replayed:false,reason:'configuration-conflict',configurationRevision:data.configurationRevision,message:(error as Error).message},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+     }
+     throw error;
+    }
+    s.results[op]=result;
     if(op.startsWith('goals.'))s.results['goals.get']=result;if(op==='budget.set')s.results['budget.get']=result;if(op.startsWith('task.'))s.results['task.get']=result;if(op.startsWith('capacity.'))s.results['capacity.get']=result;
     if(op==='configuration.providers')s.overlays['provider-catalog']={...(s.overlays['provider-catalog']??{})};
     if(op==='configuration.providerModels'){const id=String(result.provider);s.results.modelCatalogs={...(s.results.modelCatalogs??{}),[id]:{...result,phase:'ready'}};}
@@ -130,7 +139,7 @@ export class NativeCapabilities {
    if(scope!=='host')updates.push(this.record(scope,'runtime-control',this.runtime(scope,s),s));
    if(!result.cancelled&&(op==='configuration.inspect'||op==='configuration.apply'||op==='configuration.toggle'||op==='bundle.preview'||op==='bundle.switch')){
     const configuration=op==='configuration.inspect'||op==='configuration.toggle'?result:op==='configuration.apply'?result.configuration:result.configuration;
-    updates.push(this.record(scope,'configuration',{configuration:{sessionId:scope,...(configuration??{}),...s.overlays.configuration},configurationRevision:s.version},s));
+    updates.push(this.record(scope,'configuration',{configuration:{sessionId:scope,...s.overlays.configuration,...(configuration??{})},configurationRevision:s.version},s));
    }
    if(topic==='provider-catalog'&&s.overlays[topic]){const data:Json={setup:s.overlays[topic]};if(op==='configuration.defaults'){const key=JSON.stringify([args.workspace??context.session?.workingDirectory??'',args.bundle??'']);data.draftDefaults={[key]:result};}updates.push(this.record(scope,topic,data,s));}
    if(topic==='configuration'&&s.overlays.configuration?.registry)updates.push(this.record(scope,topic,{registry:s.overlays.configuration.registry,configurationRevision:s.version},s));
