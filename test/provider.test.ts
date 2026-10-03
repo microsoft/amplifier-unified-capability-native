@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {createNativeCapabilities} from '../src/index.js';
+const {createNativeCapabilities}=await import(process.env.AMPLIFIER_NATIVE_CAPABILITY_MODULE??'../src/index.js');
 const session='ahp-session:/one';const context={clientId:'browser',session:{uri:session,workingDirectory:'/owned'}};
 function fixture(){let calls:Array<[string,string,any]>=[];const provider=createNativeCapabilities({nativeControl:async(scope,op,args)=>{calls.push([scope,op,args]);if(op==='capabilities')return {controls:['goals.get','goals.set','configuration.inspect','configuration.apply','configuration.providers','configuration.providerModels','bundle.preview']};if(op==='configuration.inspect')return {plan:{providers:[]},bundle:'test'};if(op==='goals.set')return {goal:args};if(op==='configuration.providerModels')return {provider:'p',models:[{id:'m'}]};return {tools:[],capabilities:{goals:true}};}});return {provider,calls};}
 const request=(topic:string,scope=session)=>({uri:`amplifier-capability://native/${topic}`,topic,scope,clientId:'browser'});
@@ -83,4 +83,58 @@ test('task mutations use outer command identity, exact receipts do not replace t
  assert.equal(calls.find(row=>row[0]==='task.receipt')[1].commandId,'original-id');assert.equal(receipt.updates[0].data.runtimeControl[session]['task.get'].task.id,'task');
  const refused=await provider.action(action('runtime-control','runtime.control',{operation:'task.pause',args:{expectedRevision:0}}),context);
  assert.equal(refused.accepted,false);assert.equal(refused.result.executed,false);
+});
+
+
+test('settled custom bundle save preserves explicit model choice and original mounted truth',async()=>{
+ const calls:any[]=[];let saves=0;
+ const provider=createNativeCapabilities({nativeControl:async(scope,op,args)=>{
+  calls.push([scope,op,args]);
+  if(op==='capabilities')return {controls:['bundle.switch']};
+  if(op==='configuration.inspect')return {plan:{providers:[]},bundle:'original'};
+  if(op==='configuration.exportResources')return {contexts:[]};
+  if(op==='bundle.switch')return args.bundle==='original'
+   ?{bundle:'original',configuration:{plan:{name:'original'},configurationRevision:'a'.repeat(64)}}
+   :{requiresModelChoice:true,preview:{bundle:'saved',models:['pick-explicitly']}};
+  throw Error('Unexpected runtime dispatch '+op);
+ },nativeAdmin:async(op,args)=>{
+  assert.equal(op,'bundle.save');saves++;assert.equal(args.rootBundle,'original');
+  return {saved:{name:'saved'},registeredBundles:{saved:'local:saved'}};
+ }});
+ await provider.action(action('bundles','bundle.switch',{bundle:'original'}),context);
+ const result=await provider.action(action('bundles','bundle.save',{name:'saved',sessionId:session}),context);
+ assert.equal(result.accepted,true);assert.equal(result.result.saved.name,'saved');
+ assert.equal(result.result.activation.requiresModelChoice,true);
+ const configuration=result.updates.find(u=>u.topic==='configuration')!.data.configuration;
+ assert.equal(configuration.bundle,'original');assert.equal(configuration.plan.name,'original');
+ assert.equal(configuration.bundleChange.phase,'needs-model');assert.equal(configuration.bundlePreview.bundle,'saved');
+ assert.equal(saves,1);assert.equal(calls.filter(row=>row[1]==='bundle.switch'&&row[2].bundle==='saved').length,1);
+ assert.equal(result._meta['amplifier.dev/operation'].id,'command-1');
+});
+
+for(const outcome of ['refused','unknown'] as const)test('settled bundle save remains completed after '+outcome+' activation without replay',async()=>{
+ let saves=0,switches=0;const provider=createNativeCapabilities({nativeControl:async(_scope,op)=>{
+  if(op==='configuration.inspect')return {plan:{providers:[]},bundle:'original'};
+  if(op==='configuration.exportResources')return {};
+  if(op==='bundle.switch'){switches++;throw outcome==='refused'
+   ?Object.assign(Error('Not admitted'),{data:{executed:false,reason:'native-busy'}})
+   :Error('Reply lost after switch');}
+  if(op==='configuration.providers')return {selection:{model:'observed-after-loss'}};
+  throw Error(op);
+ },nativeAdmin:async()=>{saves++;return {saved:{name:'saved'}};}});
+ const result=await provider.action(action('bundles','bundle.save',{name:'saved',sessionId:session}),context);
+ assert.equal(result.accepted,true);assert.equal(result.result.saved.name,'saved');
+ assert.equal(result.result.activation.state,outcome==='refused'?'failed':'unknown');
+ assert.equal(result.result.activation.executed,outcome==='refused'?false:undefined);
+ assert.equal(result.updates.find(u=>u.topic==='configuration')!.data.configuration.bundleChange.phase,outcome==='refused'?'error':'unknown');
+ assert.equal(saves,1);assert.equal(switches,1);
+});
+
+test('generic tool authority always comes from authenticated user or agent context',async()=>{
+ const actors:string[]=[];const provider=createNativeCapabilities({nativeControl:async(_scope:string,operation:string,args:any)=>{
+  if(operation==='capabilities')return {controls:['tool.invoke']};
+  assert.equal(operation,'tool.invoke');actors.push(args.actor);return {success:true};
+ }});
+ for(const origin of ['ui','agent'] as const)await provider.action(action('runtime-control','runtime.control',{operation:'tool.invoke',args:{name:'fixture',arguments:{},actor:origin==='ui'?'agent':'ui'}}),{...context,origin});
+ assert.deepEqual(actors,['ui','agent']);
 });

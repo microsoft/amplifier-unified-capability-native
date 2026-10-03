@@ -136,7 +136,23 @@ export class NativeCapabilities {
      while(Object.keys(overlay.operations).length>64)delete overlay.operations[Object.keys(overlay.operations)[0]];
      Object.assign(overlay,result);s.overlays[topic]=overlay;
     }
-    if(op==='bundle.save'&&scope!=='host'&&result.saved?.name){const activated=await this.native(scope,'bundle.switch',{bundle:result.saved.name});if(activated.requiresModelChoice)throw Error('Bundle was saved, but activation needs an explicit model choice.');result={...result,activation:activated};s.overlays.configuration={...(s.overlays.configuration??{}),...activated.configuration,bundle:activated.bundle,bundleChange:{phase:'ready',action:op}};delete s.results['configuration.providers'];try{s.results['configuration.providers']=await this.native(scope,'configuration.providers');}catch{s.results['configuration.providers']={available:false,reason:'refresh-unavailable'};}}
+    if(op==='bundle.save'&&scope!=='host'&&result.saved?.name){
+     // Saving and activation are distinct effects. A settled save must stay
+     // inspectable even when activation needs input or loses its reply.
+     let activated:Json;
+     try{activated=await this.native(scope,'bundle.switch',{bundle:result.saved.name});}
+     catch(error){const data=(error as {data?:Json}).data;activated=data?.executed===false
+      ?{state:'failed',executed:false,reason:data.reason??'activation-refused'}
+      :{state:'unknown',reason:'activation-outcome-unknown'};}
+     result={...result,activation:activated};
+     const phase=activated.requiresModelChoice?'needs-model':activated.state==='unknown'?'unknown':activated.state==='failed'?'error':'ready';
+     s.overlays.configuration={...(phase==='unknown'?{}:s.overlays.configuration??{}),...(phase==='ready'?{...activated.configuration,...(activated.bundle?{bundle:activated.bundle}:{})}:{}),...(activated.requiresModelChoice?{bundlePreview:activated.preview}:{}),bundleChange:{phase,action:op}};
+     if(phase==='unknown')s.results['configuration.providers']={available:false,reason:'activation-outcome-unknown'};
+     if(phase==='ready'){
+      delete s.results['configuration.providers'];
+      try{s.results['configuration.providers']=await this.native(scope,'configuration.providers');}catch{s.results['configuration.providers']={available:false,reason:'refresh-unavailable'};}
+     }
+    }
     if(topic==='configuration')s.overlays.configuration={...(s.overlays.configuration??{}),registry:{...(s.overlays.configuration?.registry??{}),...result}};
     if(topic==='bundles')s.overlays.bundles={...(s.overlays.bundles??{}),...Object.fromEntries(['bundles','registeredBundles','bundleDefaults'].filter(k=>k in result).map(k=>[k,result[k]])),...(result.discovery?{bundleDiscovery:result.discovery}:{})};
    }

@@ -241,3 +241,39 @@ ordinary browser administration, and older peers refuse before dispatch. Exact
 receipt inspection is an explicit passive read while held. No connection is
 reopened to repeat uncertain work. `maintenanceCapabilities()` returns a cloned
 metadata declaration without reading private settings or starting a session.
+
+
+### Custom bundle save and activation outcomes
+
+`bundle.save` retains a completed native save when the subsequent `bundle.switch`
+needs a model choice, refuses before an effect, or loses its reply. The action
+returns `accepted:true` with the original `saved` result and a separate `activation`.
+A model choice preserves native `requiresModelChoice`/`preview` and publishes
+`configuration.bundleChange.phase = 'needs-model'`; the old mounted bundle remains
+current. Explicit native `executed:false` activation errors produce
+`activation:{state:'failed',executed:false,reason}` and phase `error`. Other activation
+errors produce `activation:{state:'unknown',reason:'activation-outcome-unknown'}`
+and phase `unknown`; this path dispatches no automatic retry or provider refresh.
+Only a confirmed activation publishes the replacement plan. Clients must inspect
+unknown activation before explicitly choosing another effect. This package's
+cache is not a durable receipt store; the host retains the exact action result.
+
+For an independent package consumer, set `AMPLIFIER_NATIVE_CAPABILITY_MODULE`
+to the installed package's absolute `dist/index.js` path when running the tests.
+Provider fixture tests and the actual installed-native presentation test both
+consume this entrypoint. The latter checks saved provider opaque fields/redaction,
+all five configuration sections, local/project source separation, workspace bundle
+defaults and foreign workspace refusal with zero runtime calls. These checks do
+not mount the configured fixture modules or qualify browser editors, provider
+accounts or model inference.
+
+The opt-in `AMPLIFIER_TEST_NATIVE_APPROVAL=1` installed ACP regression exercises
+an approval-backed generic tool for both authenticated origins. At native
+`f530e541` the first approved call does not settle: `control` retains the worker
+command lock while `approval` requires the same lock. The reproduction refuses to
+retry, times out after 15 seconds, retains its owned state and reports its native
+session ID. It is visibly skipped by default while the native owner repairs that
+runtime boundary. Ordinary actual-runtime checks qualify goals, unlimited turn
+budgets, context limits, catalog/usage, mode absence and local-only export refusal;
+no inference is requested. A local fixture source has no portable Git equivalent,
+so the actual export test expects native refusal and verifies no activation.
