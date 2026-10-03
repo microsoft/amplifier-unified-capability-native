@@ -69,3 +69,18 @@ test('effective provider is refreshed only for selected confirmed mutations and 
  assert.equal(reset.accepted,true);assert.deepEqual(reset.updates[0].data.runtimeControl[session]['configuration.providers'],{available:false,reason:'refresh-unavailable'});
  assert.ok(calls.every(row=>row[0]===session));
 });
+
+test('task mutations use outer command identity, exact receipts do not replace task projection',async()=>{
+ const calls:any[]=[];const provider=createNativeCapabilities({nativeControl:async(_scope,op,args)=>{
+  calls.push([op,args]);if(op==='capabilities')return {controls:['task.create','task.pause','task.receipt','task.get']};
+  if(op==='task.pause')throw Object.assign(new Error('Stale task revision'),{data:{reason:'task-preflight-refused',executed:false}});
+  if(op==='task.receipt')return {available:true,commandId:args.commandId,receipt:{state:'succeeded'}};
+  return {task:{id:'task',revision:1,objective:'Preserve',status:'active'},historyCount:0};
+ }});
+ const created=await provider.action(action('runtime-control','runtime.control',{operation:'task.create',args:{expectedRevision:0,objective:'Preserve'}}),context);
+ assert.equal(calls.find(row=>row[0]==='task.create')[1].commandId,'command-1');assert.equal(created.accepted,true);
+ const receipt=await provider.action(action('runtime-control','runtime.control',{operation:'task.receipt',args:{commandId:'original-id'}}),context);
+ assert.equal(calls.find(row=>row[0]==='task.receipt')[1].commandId,'original-id');assert.equal(receipt.updates[0].data.runtimeControl[session]['task.get'].task.id,'task');
+ const refused=await provider.action(action('runtime-control','runtime.control',{operation:'task.pause',args:{expectedRevision:0}}),context);
+ assert.equal(refused.accepted,false);assert.equal(refused.result.executed,false);
+});

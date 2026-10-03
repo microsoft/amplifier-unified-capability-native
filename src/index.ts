@@ -19,7 +19,7 @@ const ADMIN:Record<string,Topic>={
  'modules.list':'configuration','modules.save':'configuration','modules.remove':'configuration','modules.validate':'configuration','sources.list':'configuration','sources.save':'configuration','sources.remove':'configuration','sources.validate':'configuration',
  'bundles.list':'bundles','bundles.add':'bundles','bundles.remove':'bundles','bundles.toggle':'bundles','bundles.reorder':'bundles','bundles.move':'bundles','bundle.discover':'bundles','bundle.export':'bundles','bundle.save':'bundles','bundle.default':'bundles','configuration.defaults':'provider-catalog'
 };
-const READS=new Set(['configuration.inspect','configuration.providers','configuration.providerModels','catalog.inspect','usage.inspect','goals.get','budget.get','mode.list','native.status','task.get','capacity.get','capabilities','bundle.preview']);
+const READS=new Set(['configuration.inspect','configuration.providers','configuration.providerModels','catalog.inspect','usage.inspect','goals.get','budget.get','mode.list','native.status','task.get','task.receipt','task.history','capacity.get','capabilities','bundle.preview']);
 const forbiddenFields=new Set(['__proto__','prototype','constructor']);
 function object(value:unknown):Json {if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Expected object arguments.');return value as Json;}
 function copy<T>(value:T):T {return structuredClone(value);}
@@ -94,9 +94,10 @@ export class NativeCapabilities {
    if(request.operation==='runtime.control'||['configuration.inspect','configuration.apply','configuration.toggle','configuration.cancel','bundle.preview','bundle.switch'].includes(op)){
     const caps=await this.native(scope,'capabilities');if(![...(caps.controls??[]),'capabilities',...(caps.workerOperations??[]),'steer'].includes(op))throw Error(`The connected agent does not support ${op}.`);
     if(op==='configuration.apply'&&!/^[a-f0-9]{64}$/.test(arguments_.expectedConfigurationRevision??''))return {accepted:false,updates:[],invalidate:[],result:{applied:false,executed:false,reason:'configuration-revision-required',message:'Inspect and review the current mount plan before applying a configuration draft.'},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
-    if(op==='configuration.apply')arguments_={...arguments_,commandId:request.commandId};
+    if(op==='configuration.apply'||['task.create','task.update','task.pause','task.resume','task.block','task.complete'].includes(op))arguments_={...arguments_,commandId:request.commandId};
     try{result=await this.native(scope,op,arguments_);}catch(error){
      const data=(error as {data?:Json}).data;
+     if(op.startsWith('task.')&&data?.reason==='task-preflight-refused'&&data.executed===false)return {accepted:false,updates:[],invalidate:[],result:{applied:false,executed:false,replayed:false,reason:data.reason,message:(error as Error).message},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
      if(op==='configuration.apply'&&data?.reason==='configuration-conflict'&&data.executed===false){
       this.invalidate(scope,['configuration']);
       return {accepted:false,updates:[],invalidate:['configuration'],result:{applied:false,executed:false,replayed:false,reason:'configuration-conflict',configurationRevision:data.configurationRevision,message:(error as Error).message},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
@@ -110,7 +111,7 @@ export class NativeCapabilities {
      delete s.results['configuration.providers'];
      try{s.results['configuration.providers']=await this.native(scope,'configuration.providers');}catch{s.results['configuration.providers']={available:false,reason:'refresh-unavailable'};}
     }
-    if(op.startsWith('goals.'))s.results['goals.get']=result;if(op==='budget.set')s.results['budget.get']=result;if(op.startsWith('task.'))s.results['task.get']=result;if(op.startsWith('capacity.'))s.results['capacity.get']=result;
+    if(op.startsWith('goals.'))s.results['goals.get']=result;if(op==='budget.set')s.results['budget.get']=result;if(op.startsWith('task.')&&!['task.receipt','task.history'].includes(op))s.results['task.get']=result;if(op.startsWith('capacity.'))s.results['capacity.get']=result;
     if(op==='configuration.providers')s.overlays['provider-catalog']={...(s.overlays['provider-catalog']??{})};
     if(op==='configuration.providerModels'){const id=String(result.provider);s.results.modelCatalogs={...(s.results.modelCatalogs??{}),[id]:{...result,phase:'ready'}};}
     if(op==='bundle.preview')s.overlays.configuration={...(s.overlays.configuration??{}),bundlePreview:result};
