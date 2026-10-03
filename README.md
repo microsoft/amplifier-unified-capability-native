@@ -168,3 +168,30 @@ receipts. The host verifies those receipts; this bridge only checks exact bindin
 Only the original live acquired lease supports pre-effect admission rollback.
 Reconciliation cannot substitute the `admission-refused` shortcut. Process loss
 retains uncertainty, and a new process or open OS lock alone never proves success.
+
+### Scoped file-access editor
+
+Optional `createPermissionsCapabilities({nativeAdmin: admin.perform,onInvalidate})`
+provides `permissions.get/save/receipt` through a separately composed provider.
+Its `permissions` topic is host-scoped change/capability metadata only:
+`data.permissionsCapability = {version:1,available,scopes,limits,application,revision}`.
+Clients keep session/scope selection and unsaved edits private, load the selected
+scope explicitly, and compare the saved scope's `revision` before saving.
+Get arguments are `{scope?,sessionId?}`. Save arguments are
+`{scope,sessionId?,expectedRevision,allowed,denied}`; the outer action command ID
+is the native command identity. Receipt arguments are `{commandId,sessionId?}`.
+Results preserve native exact receipt status; failed pre-effect CAS returns
+`accepted:false`, while an unknown result never authorizes effect replay.
+
+Confirmed saves invalidate the single host metadata topic. Get and receipt do
+not publish editor selection or trigger invalidation loops. The native launcher
+must set `adminPermissions:true`; `AdminConnection` checks the negotiated v1
+capability before dispatch, and retains its normal held-intake accounting.
+Get/receipt are explicitly read-only even while held. Bind this provider to the
+same genuine administration quiescence participant in composition.
+
+Session selectors must match trusted AHP channel/context. Agent saves cannot
+change global settings or select another session workspace. Clients cannot pass
+native homes, cwd, or arbitrary settings paths. Path entries are preferences for
+the native reference tool policy, not generic filesystem or shell authority.
+Actual mounted bundle/instance restrictions remain authoritative.
