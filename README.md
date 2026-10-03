@@ -209,3 +209,7 @@ checks the returned identity and binds the authorized workspace before native
 dispatch. Missing or foreign selectors never fall back to a default workspace.
 Agents still use their own authenticated session channel; a root selector grants
 no cross-session authority.
+
+`maintenance.artifact.inspect` is a passive held-gate read for independently
+verified full-native immutable archive attestations. It is available through the
+existing trusted `perform` port and never grants archive creation/restore rights.

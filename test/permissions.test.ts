@@ -55,11 +55,12 @@ test('passive maintenance negotiation preserves full-native restore metadata wit
  const dir=await mkdtemp(join(tmpdir(),'admin-capabilities-')),workspace=join(dir,'workspace');await mkdir(workspace);const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home:join(dir,'home'),appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],adminMaintenance:true,maintenanceFullNative:true,maintenanceRestoreRoots:[workspace],workerCommand:['/never/start']}));
  const admin=new AdminConnection({command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace});
  try{
-  const one=await admin.maintenanceCapabilities();assert.equal(one.version,1);assert.equal(one.archivePlans.fullNative.version,1);assert.equal(one.archivePlans.fullNative.restore.version,1);
+  const one=await admin.maintenanceCapabilities();assert.equal(one.version,1);assert.equal(one.archivePlans.fullNative.version,1);assert.equal(one.archivePlans.fullNative.restore.version,1);assert.equal(one.archivePlans.fullNative.artifactInspect.version,1);
   one.archivePlans.fullNative.version=999;assert.equal((await admin.maintenanceCapabilities()).archivePlans.fullNative.version,1);
   assert.equal((await admin.inspectLifecycle()).work.requests,0);
   const lease=await admin.quiescenceParticipant.acquire({fenceId:'restore-inspect',commandId:'recovery',purpose:'recovery',instanceId:'host',dataScope:'scope'});assert.ok(lease);
   const absent=await admin.perform('maintenance.restore.inspect',{restoreCommandId:'never-admitted'},{clientId:'browser'});assert.equal(absent.available,false);assert.equal(absent.finalized,false);
+  await assert.rejects(admin.perform('maintenance.artifact.inspect',{artifactId:'a'.repeat(32),sha256:'a'.repeat(64)},{clientId:'browser'}),(error:any)=>!error.message.includes('intake is held')&&/description|No such file|missing/i.test(error.message));
   await assert.rejects(admin.perform('maintenance.restore.apply',{commandId:'forbidden',previewHash:'x'},{clientId:'browser'}),/intake is held/);
   await lease.release('unchanged',{kind:'admission-refused'});await assert.rejects(stat(join(dir,'home','projects')));
  }finally{await admin.close();await rm(dir,{recursive:true,force:true});}
