@@ -277,3 +277,12 @@ sealed native successor. Ordinary actual-runtime checks qualify goals, unlimited
 budgets, context limits, catalog/usage, mode absence and local-only export refusal;
 no inference is requested. A local fixture source has no portable Git equivalent,
 so the actual export test expects native refusal and verifies no activation.
+
+Set `AMPLIFIER_TEST_PORTABLE_BUNDLE=1` with the native owner's tiny installed
+provider-fixture wheel to exercise actual save-and-use. The new fixture omits
+private module source paths, applies context limit 7777 through native CAS,
+saves the selected plan and activates it exactly once through this bridge.
+The installed check verifies the saved body, reloaded native plan, zero model
+calls and approved user/agent tools. This synthetic bundle is a test fixture,
+not a production package or account acceptance. Without this flag the same
+fixture deliberately retains local paths and tests the native export refusal.

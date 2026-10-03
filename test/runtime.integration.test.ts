@@ -12,14 +12,16 @@ from pathlib import Path
 p=Path(sys.argv[1]);home=p/'home';home.mkdir()
 modules={n:Path(importlib.util.find_spec('amplifier_module_'+n.replace('-','_')).origin).parent for n in ['context-simple','provider-fixture']}
 plan='bundle:\n  name: bridge-runtime-fixture\n  version: 1.0.0\nsession:\n  orchestrator:\n    module: loop-live\n  context:\n    module: context-simple\n    source: '+json.dumps(str(modules['context-simple']))+'\nproviders:\n  - module: provider-fixture\n    source: '+json.dumps(str(modules['provider-fixture']))+'\n'
+if sys.argv[2]=='portable':
+    plan=json.dumps({'bundle':{'name':'bridge-runtime-fixture','version':'1.0.0+amplifier-unified.snapshot.1'},'session':{'orchestrator':{'module':'loop-live'},'context':{'module':'context-simple'}},'providers':[{'module':'provider-fixture','config':{'fixtureModels':[{'id':'fixture-model'},{'id':'fixture-alternate'}],'selectedModelAudit':str(p/'provider-calls.log')}}]})
 bundle=p/'fixture.yaml';bundle.write_text(plan)
 (home/'settings.yaml').write_text('bundle:\n  app: []\n')
 (p/'native.json').write_text(json.dumps({'home':str(home),'appHome':str(p/'app'),'bundle':str(bundle),'adminWorkspaceRoots':[str(p/'workspace')],'startupTimeout':60}))
 `;
-test('installed Core/Foundation native controls preserve selected session, user/agent parity and unportable export refusal',{skip:!python,timeout:100000},async t=>{
+test('installed Core/Foundation native controls preserve selected session, user/agent parity and bundle export boundaries',{skip:!python,timeout:100000},async t=>{
  const dir=await mkdtemp(join(tmpdir(),'native-bridge-runtime-')),workspace=join(dir,'workspace');await mkdir(workspace);
  const env={...process.env,PYTHONDONTWRITEBYTECODE:'1',AMPLIFIER_RUNTIME_IMMUTABLE:'1',AMPLIFIER_SOURCE_STORE:join(dir,'source-store'),AMPLIFIER_SESSION_STATE_HOME:join(dir,'writer-state'),UV_CACHE_DIR:join(dir,'uv-cache')};
- const prepared=spawnSync(python!,['-I','-B','-c',setup,dir],{env,encoding:'utf8'});assert.equal(prepared.status,0,prepared.stderr);
+ const prepared=spawnSync(python!,['-I','-B','-c',setup,dir,process.env.AMPLIFIER_TEST_PORTABLE_BUNDLE==='1'?'portable':'local'],{env,encoding:'utf8'});assert.equal(prepared.status,0,prepared.stderr);
  const child=spawn(python!,['-I','-B','-m','amplifier_acp','--config',join(dir,'native.json')],{cwd:workspace,env,stdio:'pipe'});
  let stderr='';child.stderr.on('data',chunk=>stderr=(stderr+chunk).slice(-8000));
  let approvalCount=0,unknown=false;
@@ -45,8 +47,20 @@ test('installed Core/Foundation native controls preserve selected session, user/
   const usage=await action('usage.inspect');assert.equal(usage.result.calls,0);
   const mounted=await provider.action({channel:uri,topic:'configuration',operation:'configuration.inspect',args:{},commandId:'inspect',version:1},context);
   assert.ok(mounted.result.plan.providers.some((row:any)=>row.module==='provider-fixture'));
+  if(process.env.AMPLIFIER_TEST_PORTABLE_BUNDLE==='1'){
+   const plan=structuredClone(mounted.result.plan);plan.session.context.config={...plan.session.context.config,max_tokens:7777};
+   await provider.action({channel:uri,topic:'configuration',operation:'configuration.apply',args:{config:plan,expectedConfigurationRevision:mounted.result.configurationRevision},commandId:'apply',version:1},context);
+   const saved=await provider.action({channel:uri,topic:'bundles',operation:'bundle.save',args:{sessionId:uri,name:'bridge-saved',description:'Owned installed consumer'},commandId:'save',version:1},context);
+   assert.equal(saved.accepted,true);assert.equal(saved.result.saved.name,'bridge-saved');assert.ok(saved.result.activation.bundle);
+   assert.equal(await readFile(saved.result.saved.uri,'utf8'),saved.result.export.content);
+   assert.equal(calls.filter(row=>row.operation==='bundle.switch').length,1);
+   const current=await action('configuration.inspect');assert.equal(current.result.plan.session.context.config.max_tokens,7777);
+   assert.equal((await action('usage.inspect')).result.calls,0);
+   await assert.rejects(readFile(join(dir,'provider-calls.log')));
+  }else{
   await assert.rejects(provider.action({channel:uri,topic:'bundles',operation:'bundle.save',args:{sessionId:uri,name:'bridge-saved',description:'Owned installed consumer'},commandId:'save',version:1},context),/local source without a portable Git equivalent/);
   assert.equal(calls.filter(row=>row.operation==='bundle.switch').length,0);
+  }
   assert.equal((await action('context.clear')).result.cleared,true);
   await t.test('approved tool invocation settles through the installed ACP peer',{skip:process.env.AMPLIFIER_TEST_NATIVE_APPROVAL!=='1'},async()=>{
   for(const origin of ['ui','agent'] as const){const tool=await action('tool.invoke',{name:'fixture_permit',arguments:{},actor:origin==='ui'?'agent':'ui'},origin);assert.equal(tool.result.result.success,true);assert.equal(tool.result.result.output.decision,'allow');assert.equal(calls.at(-1).args.actor,origin);}
