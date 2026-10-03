@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,rm,readFile,chmod,readdir} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,rm,readFile,chmod,readdir,realpath} from 'node:fs/promises';
 import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {spawn,spawnSync} from 'node:child_process';import {Readable,Writable} from 'node:stream';
 import {ClientSideConnection,ndJsonStream} from '@agentclientprotocol/sdk';
@@ -19,7 +19,7 @@ bundle=p/'fixture.yaml';bundle.write_text(plan)
 (p/'native.json').write_text(json.dumps({'home':str(home),'appHome':str(p/'app'),'bundle':str(bundle),'adminWorkspaceRoots':[str(p/'workspace')],'startupTimeout':60}))
 `;
 test('installed Core/Foundation native controls preserve selected session, user/agent parity and bundle export boundaries',{skip:!python,timeout:100000},async t=>{
- const dir=await mkdtemp(join(tmpdir(),'native-bridge-runtime-')),workspace=join(dir,'workspace');await mkdir(workspace);
+ const dir=await realpath(await mkdtemp(join(tmpdir(),'native-bridge-runtime-'))),workspace=join(dir,'workspace');await mkdir(workspace);
  const env={...process.env,PYTHONDONTWRITEBYTECODE:'1',AMPLIFIER_RUNTIME_IMMUTABLE:'1',AMPLIFIER_SOURCE_STORE:join(dir,'source-store'),AMPLIFIER_SESSION_STATE_HOME:join(dir,'writer-state'),UV_CACHE_DIR:join(dir,'uv-cache')};
  const prepared=spawnSync(python!,['-I','-B','-c',setup,dir,process.env.AMPLIFIER_TEST_PORTABLE_BUNDLE==='1'?'portable':'local'],{env,encoding:'utf8'});assert.equal(prepared.status,0,prepared.stderr);
  const child=spawn(python!,['-I','-B','-m','amplifier_acp','--config',join(dir,'native.json')],{cwd:workspace,env,stdio:'pipe'});
@@ -70,7 +70,8 @@ test('installed Core/Foundation native controls preserve selected session, user/
      assert.equal(scope,uri);return deadline(client.extMethod('_amplifier/native',{sessionId:native.sessionId,operation,args}) as Promise<any>);
     }});
     assert.equal(replacement.manifest.actions['bundle.receipt'],undefined);
-    await assert.rejects(replacementAdmin.perform('bundle.receipt',{commandId:'save'},context),/Native bundle receipts are unavailable/);
+    if((await replacementAdmin.bundleCommandCapabilities())?.version===1)assert.deepEqual(await replacementAdmin.perform('bundle.receipt',{commandId:'save'},context),{receipt:null});
+    else await assert.rejects(replacementAdmin.perform('bundle.receipt',{commandId:'save'},context),/Native bundle receipts are unavailable/);
     const projection=await replacement.read({uri:'amplifier-capability://native/bundles',topic:'bundles',scope:uri,clientId:context.clientId});
     assert.equal(projection.data.saved,undefined);assert.equal(projection.data.activation,undefined);
     assert.equal(await readFile(savedUri,'utf8'),body);

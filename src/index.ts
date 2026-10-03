@@ -1,4 +1,4 @@
-import {bundleCommandIds} from './bundle-commands.js';
+import {bundleCommandIds,exactBundleReceipt} from './bundle-commands.js';
 import {ACTION_SCHEMAS} from './action-schemas.js';
 /** Unified presentation capability owner. No host-private or native-engine imports. */
 export type Json=Record<string,any>;
@@ -108,10 +108,7 @@ export class NativeCapabilities {
    const receipts:Json={};
    const inspect=async(effect:string,id:string,activation:boolean)=>{
     const value=activation?await this.options.nativeBundleReceipt!(scope,id):await this.options.nativeAdmin!('bundle.receipt',{commandId:id},context);
-    if(!value||!('receipt' in value))throw Error('Invalid native bundle receipt response.');
-    const r=value.receipt;
-    if(r!==null&&(r.version!==1||r.commandId!==id||r.operation!==effect||!['succeeded','refused','unknown'].includes(r.status)||r.replayed!==false||r.status==='succeeded'&&(!('result' in r)||Buffer.byteLength(JSON.stringify(r.result))>524288)||r.status!=='succeeded'&&'result' in r||!Number.isFinite(r.createdAt)||r.status==='unknown'&&'completedAt' in r||r.status!=='refused'&&'executed' in r||r.status==='refused'&&r.executed!==false))throw Error('Native bundle receipt does not bind the exact child operation.');
-    return copy(r);
+    return exactBundleReceipt(value,effect,id);
    };
    receipts.command=await inspect(original,ids.commandId,original==='bundle.switch');
    if(ids.activationCommandId)receipts.activation=await inspect('bundle.switch',ids.activationCommandId,true);

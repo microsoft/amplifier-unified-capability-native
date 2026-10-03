@@ -68,6 +68,15 @@ export class AdminConnection {
  async bundleCommandCapabilities():Promise<Json|undefined>{
   this.calls++;try{await this.start();return this.bundleMetadata?structuredClone(this.bundleMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }
+ /** Trusted composition supplies host-resolved canonical native identity and history cwd. No worker/session admission. */
+ async readBundleReceipt(input:{sessionId:string;cwd:string;commandId:string}):Promise<Json>{
+  if(!input||Object.keys(input).some(k=>!['sessionId','cwd','commandId'].includes(k))||typeof input.sessionId!=='string'||!input.sessionId||typeof input.cwd!=='string'||!input.cwd||typeof input.commandId!=='string'||!input.commandId||input.commandId.length>200)throw Error('Exact trusted native bundle receipt selectors required.');
+  this.calls++;try{
+   await this.start();
+   if(this.bundleMetadata?.version!==1||this.bundleMetadata?.passiveReceipt!==true||this.bundleMetadata?.activationReceipt!=='_amplifier/bundle/receipt')throw Object.assign(Error('Native bundle receipts are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'bundle-receipt-unavailable'}});
+   return await this.rpc('_amplifier/bundle/receipt',{sessionId:input.sessionId,cwd:input.cwd,commandId:input.commandId});
+  }finally{this.calls--;if(!this.calls)this.idle();}
+ }
  perform=(operation:string,args:Json,context:Context):Promise<Json>=>this.invoke(operation,args,context);
  /** Trusted composition only: product authorizes this existing workspace; native launcher roots revalidate it. */
  importHistory=(operation:string,args:Json,workingDirectory:string):Promise<Json>=>{

@@ -46,8 +46,14 @@ metadata asynchronously and bind a separate passive selected-session receipt
 port; a static caller capability assertion or active runtime-control fallback
 cannot establish support. Save and activation use distinct stable child identities.
 Passive receipt inspection returns native unknown/refusal/needs-model outcomes
-without replay or inferred completion. Positive installed successor recovery
-qualification remains pending. Consumers keep
+without replay or inferred completion. Hosts preserve the original canonical
+history/admin workspace across restart; relocated execution directories or a
+changed current default do not replace that binding. A null receipt in a different
+workspace cannot close the original command. Host-scope recovery after a default
+change without retained original authority remains unqualified.
+The [installed successor fixture](../test/bundle-receipts.integration.test.ts)
+qualifies exact native child recovery across process restart and wrong-scope
+lookups; host transport/browser recovery remains separate. Consumers keep
 native configuration revisions opaque and require explicit stale-draft review.
 
 Composition binds every administration callback to the same genuine connection
@@ -72,8 +78,14 @@ baseline `8e8b615`. The original `f530` approval deadlock/unknown records remain
 retained independently. Hosted Node 22/24 fixture success is distinct from actual
 native, browser, account and deployed acceptance.
 
+Successor source and independently installed consumer suites each pass 45 checks
+with zero skips against native `4d2ea06`; the older-peer refusal case uses sealed
+`a434719`. The receipt fixture covers lost save/activation replies, native/admin
+restart, exact unapplied model choice, wrong workspace/native identity and no
+active-runtime recovery.
+
 F04/F06–F10/F23/F25 retain their original desired behavior. Browser editors,
-lost outer-reply/result recovery and its UI, remote source discovery, nonempty skills/agents, supported
+actual host transport lost-reply recovery and its UI, remote source discovery, nonempty skills/agents, supported
 mode-set variants, all module/provider combinations, Linux installed-native,
 real accounts/devices and live adoption are not established by this packet.
 General global-agent administration policy remains a cross-owner question;

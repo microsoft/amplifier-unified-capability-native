@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {bundleCommandIds} from '../src/bundle-commands.js';
+import {pathToFileURL} from 'node:url';
+const {bundleCommandIds}=await import(process.env.AMPLIFIER_NATIVE_CAPABILITY_MODULE?new URL('./bundle-commands.js',pathToFileURL(process.env.AMPLIFIER_NATIVE_CAPABILITY_MODULE)).href:'../src/bundle-commands.js');
 test('bundle child identities survive reconstruction and distinguish authority, effect and original operation',()=>{
  const id=bundleCommandIds('ahp-session:/owned','bundle.save','outer-command');
  assert.deepEqual(bundleCommandIds('ahp-session:/owned','bundle.save','outer-command'),id);

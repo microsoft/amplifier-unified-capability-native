@@ -261,9 +261,10 @@ and phase `unknown`; this path dispatches no automatic retry or provider refresh
 Only a confirmed activation publishes the replacement plan. Clients must inspect
 unknown activation before explicitly choosing another effect. This package's
 cache is not a durable receipt store. This preserves the delivered action response;
-exact recovery of the original saved/activation body after a lost outer reply or
-process restart is unqualified. Host command status/detail does not retain that
-body. Inspecting current settings or mounted state does not prove the original
+legacy calls cannot recover the original saved/activation body after a lost outer
+reply or process restart. Negotiated native child receipts below supply the
+separately qualified successor path. Host command status/detail does not retain
+that body. Inspecting current settings or mounted state does not prove the original
 command's outcome and never authorizes replay.
 
 ### Negotiated native bundle receipts (successor binding)
@@ -273,7 +274,9 @@ of the configured engine's actual initialization metadata, and
 `nativeBundleReceipt(session, childCommandId)`, a separate passive selected-session
 route. Await `negotiateBundleCommands()` before registering the synchronous
 manifest. `AdminConnection.bundleCommandCapabilities()` reads only its negotiated
-metadata. Receipt support requires the native `bundleCommands` v1 declaration;
+metadata. `readBundleReceipt({sessionId,cwd,commandId})` uses the same passive
+administration transport with host-resolved native identity and canonical history
+workspace; clients cannot supply those selectors as authority. Receipt support requires the native `bundleCommands` v1 declaration;
 older peers retain delivered-response behavior and do not advertise recovery.
 The passive callback must route `_amplifier/bundle/receipt` with trusted native
 session/workspace identity, never invoke active `nativeControl` or start a worker.
@@ -286,8 +289,19 @@ exact native children as `result.receipts.command` and, for selected-session sav
 `result.receipts.activation`. An absent native receipt remains `null`; unknown,
 refused and confirmed needs-model results remain native outcomes. Inspection
 returns no topic updates or invalidations and never dispatches a mutation.
-This bridge stores no durable result copies. Current implementation checks cover
-binding and refusal; positive installed successor recovery qualification is pending.
+Receipt lookup must retain the originally admitted canonical workspace. For a
+selected conversation, trusted composition uses its stable history workspace,
+not a relocated execution directory. For host-scoped administration, changing the
+configured default workspace does not transfer receipt authority: consumers must
+retain and reauthorize the original workspace context. A `null` receipt under a
+new workspace proves neither success nor absence in the old workspace; this bridge
+never searches other scopes or retries a mutation to recover it. Recovery after a
+host default-workspace change without the original binding is unqualified.
+This bridge stores no durable result copies. Source and independently installed consumer suites each pass 45 checks with zero
+skips against native `4d2ea06` (and the separate legacy refusal case against
+`a434719`). The positive receipt fixture qualifies lost save/activation replies,
+whole native/admin restart, exact needs-model preview, and wrong-scope refusal
+with zero provider calls. Host transport and browser recovery remain separate.
 
 `AMPLIFIER_BUNDLE_COMMANDS_PYTHON` selects the additive native successor for
 `test/bundle-receipts.integration.test.ts`. The fixture injects reply loss after
@@ -329,9 +343,10 @@ fixture deliberately retains local paths and tests the native export refusal.
 `AMPLIFIER_TEST_RESULT_RECOVERY_GAP=1` adds a causal gap witness with a fresh
 portable fixture: complete one save/activation, discard its delivered body,
 replace the bridge and administration process, and inspect public native methods.
-The current peer has no `bundle.receipt` route, the original outer ID was not
-forwarded, and a cold topic contains current catalog state without the original
+The legacy bridge does not negotiate receipts or forward child IDs; older peers
+refuse receipt inspection, while receipt-capable peers return null for these
+legacy IDs. A cold topic contains current catalog state without the original
 saved/activation result. The saved bytes remain unchanged and no mutation is
 resent. A passing gap witness proves the limitation, not receipt recovery.
-Native-owned exact save/activation receipts require a separately negotiated
-contract and a future positive lost-reply/restart fixture.
+The separate negotiated successor and positive fixture above supply exact native
+child receipts; they do not make legacy calls retrospectively recoverable.
