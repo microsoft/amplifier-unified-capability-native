@@ -159,7 +159,7 @@ export class NativeCapabilities {
     const raw=await this.native(scope,operation,nativeArgs);
     const result=operation==='context.clear.review'?exactContextClearReview(raw):exactContextClearResult(raw);
     s.results[operation]=copy(result);
-    if(operation==='context.clear'){delete s.results['context.clear.review'];delete s.results['goals.get'];delete s.results['goals.set'];this.invalidate(scope);}
+    if(operation==='context.clear'){delete s.results['context.clear.review'];delete s.results['goals.get'];delete s.results['goals.set'];delete s.results['goals.clear'];this.invalidate(scope);}
     const updates=[this.record(scope,'runtime-control',this.runtime(scope,s),s)];
     return {accepted:true,updates,invalidate:operation==='context.clear'?TOPICS.filter(t=>t!=='runtime-control'):[],result,_meta:meta};
    }finally{s.pending--;}

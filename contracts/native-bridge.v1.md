@@ -150,7 +150,7 @@ remain the original native error; no current-state read or mutation retry follow
 an uncertain outcome. A completed apply response is preserved verbatim with the
 original public command metadata.
 
-Confirmed completion deletes the previous review, goal-read and goal-set projections and
+Confirmed completion deletes the previous review and goal get/set/clear projections and
 invalidates selected topics. It does not synthesize a `goals.get` result; clients
 may explicitly refresh that read after completion. Passive receipt inspection
 never changes current goal truth, which may have changed after the original clear.
