@@ -212,3 +212,13 @@ test('app reset metadata is passive; only held recovery scope mutates, exact rec
  const admin=new AdminConnection({command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace});const context={fenceId:'reset-fence',commandId:'recovery-reset',purpose:'recovery' as const,instanceId:'test',dataScope:'owned'};
  try{assert.deepEqual((await admin.maintenanceCapabilities())?.appReset.parts,['native.app-bundle-default']);const held=await admin.quiescenceParticipant.acquire(context);assert.ok(held);await assert.rejects(admin.perform('maintenance.appReset.prepare',{commandId:'denied',parts:['native.app-bundle-default'],privateContentReviewed:true},{clientId:'browser'}),/intake is held/);const result=await admin.withMaintenanceFence(context,async()=>{const review=await admin.perform('maintenance.appReset.prepare',{commandId:'review',parts:['native.app-bundle-default'],privateContentReviewed:true},{clientId:'trusted'});return admin.perform('maintenance.appReset.apply',{commandId:'reset',preparedId:review.preparedId,reviewHash:review.reviewHash},{clientId:'trusted'});});assert.equal(result.receipt.state,'succeeded');assert.deepEqual((await admin.perform('maintenance.appReset.inspect',{commandId:'reset'},{clientId:'browser'})).receipt,result.receipt);assert.equal((await admin.inspectLifecycle()).workerStarted,false);await held.release('unchanged',{verified:true,...context,outcome:'unchanged',receiptId:'exact-reset-proof'});}finally{await admin.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('passive initialization deadline closes an unresponsive peer without dispatching administration',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'admin-passive-deadline-'));
+ const admin=new AdminConnection({command:process.execPath,args:['-e','process.stdin.resume();setInterval(()=>{},1000)'],cwd:dir,resolveWorkspace:()=>dir,initializationTimeoutMs:30});
+ const started=Date.now();
+ try{
+  await assert.rejects(admin.bundleCommandCapabilities(),/initialization deadline/);assert.ok(Date.now()-started<1500);
+  await assert.rejects(admin.perform('bundle.default',{scope:'workspace',bundle:'never-dispatched'},{clientId:'owned'}),/closed/);
+ }finally{await admin.close();await rm(dir,{recursive:true,force:true});}
+});

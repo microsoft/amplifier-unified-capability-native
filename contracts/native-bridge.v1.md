@@ -63,6 +63,16 @@ arguments. Clients retain private drafts and render needs-model, failed and
 unknown outcomes without automatic mutation retries. They inspect negotiated
 support before exposing optional controls.
 
+## Optional peer availability
+
+Native administration remains optional for generic host/history and other engine
+access. A bounded passive initialization failure is `unavailable`, not a permanent
+unsupported claim or a rejected promise shared by unrelated schemas/controls.
+Admin-backed reads expose availability without invented empty catalogs. Receipt
+advertisement is stable for an instance; explicit reconstruction after the peer
+is restored renegotiates passive metadata without retrying effects. The native
+receipt store, held intake and unresolved outcomes retain their authority.
+
 ## Qualification and open gaps
 
 `npm test` and `npm run check` cover the local owner. Set `AMPLIFIER_ACP_PYTHON` for

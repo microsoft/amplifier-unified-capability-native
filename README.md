@@ -303,6 +303,25 @@ skips against native `4d2ea06` (and the separate legacy refusal case against
 whole native/admin restart, exact needs-model preview, and wrong-scope refusal
 with zero provider calls. Host transport and browser recovery remain separate.
 
+### Optional administration availability
+
+Passive administration initialization has a separate bounded deadline (2 seconds
+by default; trusted `AdminOptions.initializationTimeoutMs` accepts 1–10000 ms).
+A failed or unresponsive handshake closes that owned connection before any
+administration request is dispatched. An optional admin peer must not prevent a
+generic host or another healthy engine from serving history, schemas or controls.
+
+`bundleCommandAvailability()` distinguishes `unnegotiated`, `ready`, `unsupported`
+(actual initialized metadata lacks the required protocol) and `unavailable`
+(negotiation could not complete). An unavailable negotiation resolves false rather
+than retaining a rejected promise that poisons every later schema/control call.
+Admin-backed topic reads expose `{nativeAdministration:{state:'unavailable',
+reason:'native-admin-negotiation-unavailable'}}` without fabricating catalog rows.
+Receipt advertisement stays fixed for that provider/root instance. Explicit
+reconstruction after restoring the peer negotiates a fresh passive connection;
+there is no in-place catalog mutation or automatic retry of an effect. This
+availability policy changes neither native receipts nor unknown-effect handling.
+
 `AMPLIFIER_BUNDLE_COMMANDS_PYTHON` selects the additive native successor for
 `test/bundle-receipts.integration.test.ts`. The fixture injects reply loss after
 actual native save or activation, then discards an outer delivered response and
