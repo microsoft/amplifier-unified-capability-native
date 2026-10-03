@@ -179,3 +179,30 @@ test('unadvertised cache methods refuse before private RPC dispatch',async()=>{
  const admin=new AdminConnection({command:process.execPath,args:['-e',script,audit],cwd:dir,resolveWorkspace:()=>dir});
  try{for(const operation of ['scan','page','preview','clear'])await assert.rejects(admin.perform('maintenance.cache.'+operation,{commandId:'absent'},{clientId:'browser'}),(error:any)=>error.data?.executed===false&&error.data.reason==='native-cache-unavailable');await assert.rejects(stat(audit));}finally{await admin.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('continuous capture binds the original admin connection and blocks release until exact product seal or abort',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const {realpath}=await import('node:fs/promises');const dir=await realpath(await mkdtemp(join(tmpdir(),'admin-capture-'))),workspace=join(dir,'workspace'),home=join(dir,'home');await mkdir(workspace);await mkdir(home);await writeFile(join(home,'settings.yaml'),'fixture: unchanged\n');
+ const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],adminMaintenance:true,maintenanceFullNative:true,maintenanceExternalWriters:'stopped',maintenanceFullNativeRoots:{checkpoint:join(dir,'checkpoint'),events:join(dir,'events'),sources:join(dir,'sources')},workerCommand:['/impossible/capture-worker']}));
+ const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace};const admin=new AdminConnection({...options,env:{AMPLIFIER_SESSION_STATE_HOME:join(dir,'checkpoint'),AMPLIFIER_CONTEXT_INTELLIGENCE_BASE_PATH:join(dir,'events'),AMPLIFIER_SOURCE_STORE:join(dir,'sources')}}),replacement=new AdminConnection(options),context={fenceId:'capture-fence',commandId:'product-capture',purpose:'recovery' as const,instanceId:'stopped-instance',dataScope:'owned-scope'};
+ const acquire={commandId:'native-capture',nonce:'n'.repeat(32),instanceId:context.instanceId,dataScope:context.dataScope,stopReceiptSha256:'a'.repeat(64)};
+ try{
+  assert.equal((await admin.maintenanceCapabilities())?.captureScope.connectionScoped,true);
+  const lease=await admin.quiescenceParticipant.acquire(context);assert.ok(lease);let held:any;
+  await assert.rejects(admin.perform('maintenance.capture.acquire',acquire,{clientId:'browser'}),/intake is held/);
+  await admin.withMaintenanceFence(context,async()=>{held=await admin.perform('maintenance.capture.acquire',acquire,{clientId:'trusted'});assert.equal(held.active,true);});
+  const selector={captureId:held.captureId,nonce:held.nonce};const state=await admin.perform('maintenance.capture.inspect',selector,{clientId:'browser'});assert.equal(state.active,true);assert.equal(state.stopReceiptSha256,acquire.stopReceiptSha256);
+  await assert.rejects(replacement.perform('maintenance.capture.inspect',selector,{clientId:'browser'}),(error:any)=>error.data?.executed===false&&error.data.reason==='native-maintenance-busy');
+  assert.equal((await admin.inspectLifecycle()).work.captureLease,true);
+  await admin.withMaintenanceFence(context,async()=>{
+   const plan=await admin.perform('maintenance.archive.create',{commandId:'create',parts:['full-native-authority'],privateContentReviewed:true},{clientId:'trusted'});
+   const preview=await admin.perform('maintenance.archive.prepare',{commandId:'prepare',planId:plan.planId,expectedRevision:0},{clientId:'trusted'});assert.equal(preview.fullNative.capture.captureId,held.captureId);
+   const snapshotLease=await admin.perform('maintenance.acquire',{commandId:'lease',previewHash:preview.previewHash},{clientId:'trusted'});
+   const artifact=await admin.perform('maintenance.snapshot',{commandId:'snapshot',previewHash:preview.previewHash,leaseId:snapshotLease.leaseId},{clientId:'trusted'});
+   await admin.perform('maintenance.release',{leaseId:snapshotLease.leaseId},{clientId:'trusted'});
+   const attested=await admin.perform('maintenance.artifact.inspect',{artifactId:artifact.artifactId,sha256:artifact.sha256},{clientId:'trusted'});
+   const live=await admin.perform('maintenance.capture.inspect',selector,{clientId:'trusted'});assert.equal(live.active,true);assert.equal(live.artifacts[0].manifestDigest,attested.manifest.sha256);
+   const release=await admin.perform('maintenance.capture.release',{commandId:'sealed-release',...selector,outcome:'sealed',artifactId:artifact.artifactId,artifactSha256:artifact.sha256,manifestDigest:attested.manifest.sha256,productSha256:'b'.repeat(64)},{clientId:'trusted'});assert.equal(release.released,true);
+  });
+  assert.equal((await admin.perform('maintenance.capture.inspect',selector,{clientId:'browser'})).active,false);await lease.release('unchanged',{kind:'admission-refused'});await assert.rejects(stat(join(home,'projects')));
+ }finally{await admin.close();await replacement.close();await rm(dir,{recursive:true,force:true});}
+});

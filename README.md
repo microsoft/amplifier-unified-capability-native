@@ -223,3 +223,13 @@ browser calls cannot acquire that authority. Native v1 only clears reviewed,
 exactly reconstructible bytecode and never retires source directories. Product
 owners must enqueue the work, hold their own intakes, retain the exact command,
 and inspect an uncertain receipt without replaying the effect.
+
+The additive `maintenance.capture.acquire/inspect/release` methods require the
+negotiated `captureScope.version: 1` marker. Acquire/release run inside the trusted
+recovery maintenance scope; inspect is passive under the held intake. Native
+capture keeps the original connection's writer exclusion from before full-native
+preparation through the external product seal. Exact artifact/manifest bindings
+and live inspection are required; an old receipt or replacement connection never
+recreates authority. Release binds the externally authenticated product digest or
+an explicit aborted outcome. This adapter does not authenticate supervisor stop
+receipts or claim that independent product stores were captured.
