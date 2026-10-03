@@ -92,3 +92,27 @@ test('staged import selects only a trusted workspace and preserves passive recei
   await lease.release('unchanged',{kind:'admission-refused'});
  }finally{await admin.close();await other.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('optional native import and voice preferences refuse before dispatch when unadvertised',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'admin-unsupported-')),workspace=join(dir,'workspace'),home=join(dir,'home');await mkdir(workspace);await mkdir(home);const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],workerCommand:['/impossible']}));
+ const admin=new AdminConnection({command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace});
+ try{
+  await assert.rejects(admin.importHistory('history.import.begin',{commandId:'absent'},workspace),(error:any)=>error.data?.executed===false&&error.data.reason==='history-import-unavailable');
+  await assert.rejects(admin.perform('voice.preferences.update',{commandId:'absent'},{clientId:'browser'}),(error:any)=>error.data?.executed===false&&error.data.reason==='voice-preferences-unavailable');
+  await assert.rejects(stat(join(dir,'app')));
+ }finally{await admin.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('shared voice preference CAS and exact passive receipt are independent from credentials',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'admin-voice-defaults-')),workspace=join(dir,'workspace'),home=join(dir,'home');await mkdir(workspace);await mkdir(home);const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],adminVoicePreferences:true,workerCommand:['/impossible']}));
+ const admin=new AdminConnection({command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace});
+ try{
+  const before=await admin.perform('voice.configuration',{},{clientId:'browser'});assert.equal(before.credentialAccess,'disabled');assert.ok(before.preferenceFields.includes('voice'));
+  const saved=await admin.perform('voice.preferences.update',{commandId:'voice-save',expectedRevision:before.preferencesRevision,patch:{voice:'cedar',interruptions:false}},{clientId:'browser'});assert.equal(saved.status,'succeeded');assert.equal(saved.result.voice,'cedar');assert.equal(saved.result.fallbackBehavior,'stored-only');
+  const conflict=await admin.perform('voice.preferences.update',{commandId:'voice-stale',expectedRevision:before.preferencesRevision,patch:{voice:'marin'}},{clientId:'browser'});assert.equal(conflict.status,'failed');assert.equal(conflict.executed,false);assert.equal(conflict.reason,'preferences_changed');
+  const context={fenceId:'held',commandId:'maintenance',purpose:'recovery' as const,instanceId:'host',dataScope:'scope'};const lease=await admin.quiescenceParticipant.acquire(context);assert.ok(lease);
+  assert.deepEqual(await admin.perform('voice.preferences.receipt',{commandId:'voice-save'},{clientId:'browser'}),saved);
+  await assert.rejects(admin.perform('voice.preferences.update',{commandId:'blocked'},{clientId:'browser'}),/intake is held/);
+  await lease.release('unchanged',{kind:'admission-refused'});await assert.rejects(stat(join(home,'keys.env')));await assert.rejects(stat(join(home,'projects')));
+ }finally{await admin.close();await rm(dir,{recursive:true,force:true});}
+});

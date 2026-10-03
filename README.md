@@ -144,3 +144,14 @@ quiescence and unknown-outcome accounting as other admin calls. Only exact
 browser request is never adoption authority; the host must independently inspect
 the exact configured engine's committed native receipt. No generic `args.cwd`
 reflection is added.
+
+Shared voice defaults use negotiated native `voice.preferences.update` and
+`voice.preferences.receipt` through `AdminConnection.perform`. Update arguments
+are `{commandId, expectedRevision, patch}`; only the four advertised non-secret
+fields are writable. The native result is an exact succeeded/failed/unknown
+receipt; `failed` plus `executed:false` is a known refusal, including stale CAS.
+The preferences receipt remains a passive read while administration is held.
+Credential setup remains separate. `fallbackBehavior: 'stored-only'` explicitly
+means automatic transport fallback is not implemented. Unadvertised native
+history import or voice preferences are refused before dispatch with typed
+`data.executed:false`, rather than inventing an uncertain effect.

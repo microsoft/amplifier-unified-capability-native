@@ -14,12 +14,12 @@ export interface AdminOptions {
 export interface AdminFenceContext {fenceId:string;commandId:string;purpose:'recovery'|'distribution-update';instanceId:string;dataScope:string;}
 export interface AdminReleaseProof {verified:true;fenceId:string;commandId:string;outcome:'unchanged'|'ready';instanceId:string;dataScope:string;receiptId:string;}
 const IMPORTS=new Set(['history.import.begin','history.import.chunk','history.import.preview','history.import.commit','history.import.receipt']);
-const READS=new Set(['history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
+const READS=new Set(['voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
 const MAINTENANCE=new Set(['maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
- private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private idleSupported=false;private calls=0;
+ private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private calls=0;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
  constructor(private options:AdminOptions){}
@@ -36,7 +36,9 @@ export class AdminConnection {
    this.client=new ClientSideConnection(()=>({extNotification:async(method,params)=>{if(method==='_amplifier/admin/idle'&&this.idleSupported&&params.version===1)this.idle();},sessionUpdate:async()=>{throw Error('Admin connection cannot own session updates.');},requestPermission:async()=>({outcome:{outcome:'cancelled' as const}})}),ndJsonStream(Writable.toWeb(process_.stdin) as WritableStream<Uint8Array>,Readable.toWeb(guard) as ReadableStream<Uint8Array>));
    const init=await this.client.initialize({protocolVersion:1,clientCapabilities:{_meta:{'amplifier.dev/native':{version:1}}},clientInfo:{name:'amplifier-unified-native-capabilities',version:'0.1.0'}});
    const native=init.agentCapabilities?._meta?.['amplifier.dev/native'] as Json|undefined;
-   if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Error('Agent has no launcher-enabled native administration v1 capability.');}
+   if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Object.assign(Error('Agent has no launcher-enabled native administration v1 capability.'),{data:{executed:false,replayed:false,reason:'native-admin-unavailable'}});}
+   this.historyImportSupported=native.admin.historyImport?.version===1&&native.admin.historyImport?.staged===true;
+   this.voicePreferencesSupported=native.admin.voice?.preferences?.version===1&&native.admin.voice?.preferences?.cas===true&&native.admin.voice?.preferences?.receipt===true;
    this.idleSupported=native.admin.lifecycle?.idleNotification===true;
    this.lifecycleSupported=native.admin.lifecycle?.version===1&&native.admin.lifecycle?.heldIntake===true&&native.admin.lifecycle?.crossProcessWriterFence===true;
   })();
@@ -61,6 +63,8 @@ export class AdminConnection {
   this.calls++;
   try{
    const cwd=importWorkspace??await this.options.resolveWorkspace(context);await this.start();
+   if(IMPORTS.has(operation)&&!this.historyImportSupported)throw Object.assign(Error('Native history import is unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'history-import-unavailable'}});
+   if(['voice.preferences.update','voice.preferences.receipt'].includes(operation)&&!this.voicePreferencesSupported)throw Object.assign(Error('Native shared voice preferences are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'voice-preferences-unavailable'}});
    const {sessionId:_,id,...values}=args;if(id!==undefined)values.id=id;
    if('home' in values||'appHome' in values||'cwd' in values&&!(permitted&&operation==='maintenance.reset.preview'))throw Error('Native administration launch authority cannot be supplied by clients.');
    const authorization=permitted?{fenceId:this.held!.context.fenceId,commandId:this.held!.context.commandId,leaseId:this.held!.leaseId}:undefined;
