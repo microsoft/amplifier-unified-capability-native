@@ -17,12 +17,12 @@ export interface AdminReleaseProof {verified:true;fenceId:string;commandId:strin
 export type AdminServiceReleaseProof=AdminReleaseProof&ServiceReleaseFields;
 type ReleaseProof=AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'};
 const IMPORTS=new Set(['history.import.begin','history.import.chunk','history.import.preview','history.import.commit','history.import.receipt']);
-const READS=new Set(['permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
-const MAINTENANCE=new Set(['maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
+const READS=new Set(['maintenance.restore.inspect','maintenance.restore.manifest','permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
+const MAINTENANCE=new Set(['maintenance.restore.inspect','maintenance.restore.preview','maintenance.restore.manifest','maintenance.restore.apply','maintenance.restore.reconcile','maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
- private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private calls=0;
+ private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private calls=0;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
  private releases=new Map<string,string>();
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
@@ -41,6 +41,7 @@ export class AdminConnection {
    const init=await this.client.initialize({protocolVersion:1,clientCapabilities:{_meta:{'amplifier.dev/native':{version:1}}},clientInfo:{name:'amplifier-unified-native-capabilities',version:'0.1.0'}});
    const native=init.agentCapabilities?._meta?.['amplifier.dev/native'] as Json|undefined;
    if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Object.assign(Error('Agent has no launcher-enabled native administration v1 capability.'),{data:{executed:false,replayed:false,reason:'native-admin-unavailable'}});}
+   this.maintenanceMetadata=native.admin.maintenance?structuredClone(native.admin.maintenance):undefined;
    this.historyImportSupported=native.admin.historyImport?.version===1&&native.admin.historyImport?.staged===true;
    this.permissionsSupported=native.admin.permissions?.version===1&&native.admin.permissions?.cas===true&&native.admin.permissions?.receipt===true;
    this.voicePreferencesSupported=native.admin.voice?.preferences?.version===1&&native.admin.voice?.preferences?.cas===true&&native.admin.voice?.preferences?.receipt===true;
@@ -54,6 +55,10 @@ export class AdminConnection {
   let timer:ReturnType<typeof setTimeout>|undefined;
   try{return await Promise.race([this.client!.extMethod(method,params) as Promise<Json>,new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>{void this.close();reject(Error('Native administration timed out; outcome unknown and no operation was replayed.'));},this.options.timeoutMs??120000);})]);}
   finally{if(timer)clearTimeout(timer);}
+ }
+ /** Passive negotiated capability metadata; no runtime, archive inventory, or native settings reads. */
+ async maintenanceCapabilities():Promise<Json|undefined>{
+  this.calls++;try{await this.start();return this.maintenanceMetadata?structuredClone(this.maintenanceMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }
  perform=(operation:string,args:Json,context:Context):Promise<Json>=>this.invoke(operation,args,context);
  /** Trusted composition only: product authorizes this existing workspace; native launcher roots revalidate it. */

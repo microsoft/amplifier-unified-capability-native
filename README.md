@@ -195,3 +195,10 @@ change global settings or select another session workspace. Clients cannot pass
 native homes, cwd, or arbitrary settings paths. Path entries are preferences for
 the native reference tool policy, not generic filesystem or shell authority.
 Actual mounted bundle/instance restrictions remain authoritative.
+
+`AdminConnection.maintenanceCapabilities()` returns a cloned initialized
+`native.admin.maintenance` value (or undefined if absent). It is passive and
+does not mount a worker or scan archive inventories. Full-native/restore callers
+must inspect the negotiated nested `archivePlans.fullNative` fields. Restore
+preview/apply/reconcile use the exact held recovery maintenance fence;
+restore.manifest/restore.inspect are explicitly passive under held intake.
