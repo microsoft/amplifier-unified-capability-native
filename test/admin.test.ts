@@ -129,7 +129,8 @@ test('service stop retains exact identity, excludes maintenance, and requires pl
   await assert.rejects(admin.withMaintenanceFence(context,async()=>{}),/intake is held/);
   await assert.rejects(live.release('unchanged',{verified:true,...context,outcome:'unchanged',receiptId:'legacy-proof'}),/service identity|service lifecycle/);
   await assert.rejects(live.release('ready',{...refused,outcome:'ready',serviceOutcome:'resumed'}),/service lifecycle/);
-  assert.equal((await admin.inspectLifecycle()).intakeClosed,true);await live.release('unchanged',refused);
+  assert.equal((await admin.inspectLifecycle()).intakeClosed,true);await live.release('unchanged',refused);await live.release('unchanged',refused);
+  await assert.rejects(live.release('unchanged',{...refused,receiptId:'changed'}),/receipt binds different evidence/);
   const second={...context,fenceId:'second-fence',commandId:'second-stop',serviceIdentity:{...identity}};assert.ok(await admin.quiescenceParticipant.acquire(second));await admin.close();
   await assert.rejects(replacement.quiescenceParticipant.reconcileRelease({...second,outcome:'unchanged',proof:{kind:'admission-refused'} as any}),/service identity|service lifecycle/);
   assert.equal((await replacement.inspectLifecycle()).intakeClosed,false,'Invalid reconciliation cannot acquire a new native gate');

@@ -3,7 +3,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {Readable,Writable,Transform} from 'node:stream';
 import {ClientSideConnection,ndJsonStream} from '@agentclientprotocol/sdk';
 import type {Context,Json} from './index.js';
-import {serviceIdentity,sameIdentity,validateServiceRelease,type ServiceIdentity,type ServiceReleaseFields} from './service-lifecycle.js';
+import {serviceIdentity,sameIdentity,validateServiceRelease,evidenceKey,type ServiceIdentity,type ServiceReleaseFields} from './service-lifecycle.js';
 export interface AdminOptions {
  command:string;args?:string[];env?:Record<string,string>;cwd:string;
  /** Resolve via trusted host context, never args.cwd. */
@@ -24,6 +24,7 @@ const fenced=()=>Object.assign(Error('Native administration intake is held; no n
 export class AdminConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private calls=0;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
+ private releases=new Map<string,string>();
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
  constructor(private options:AdminOptions){}
  private idle(){try{this.options.onMayBeIdle?.();}catch{/* Advisory only; never change a completed operation result. */}}
@@ -105,6 +106,7 @@ export class AdminConnection {
   }catch(error){if(this.held)this.held.phase='unknown';throw error;}
  }
  private async release(context:Readonly<AdminFenceContext>,outcome:'unchanged'|'ready'|'unknown',proof?:ReleaseProof,liveRollback=false){
+  const evidence=evidenceKey({context,outcome,proof}),prior=this.releases.get(context.fenceId);if(prior!==undefined){if(prior!==evidence||this.held)throw Error('Administration release receipt binds different evidence or intake');return;}
   const held=this.held;if(!held||held.context.fenceId!==context.fenceId||held.context.commandId!==context.commandId)throw fenced();
   if(['fenceId','commandId','purpose','instanceId','dataScope'].some(key=>(held.context as any)[key]!== (context as any)[key])||(held.context.serviceIdentity&&!sameIdentity(held.context.serviceIdentity,serviceIdentity(context.serviceIdentity))))throw fenced();
   if(outcome==='unknown'){held.phase='unknown';return;}
@@ -119,7 +121,7 @@ export class AdminConnection {
    const cwd=await this.options.resolveWorkspace({clientId:''});
    const result=await this.rpc('_amplifier/admin/lifecycle',{cwd,operation:'release',args:{fenceId:context.fenceId,commandId:context.commandId,leaseId:held.leaseId,outcome,proof}});
    if(result.released!==true||result.intakeClosed!==false||result.lease?.leaseId!==held.leaseId||result.adminInstanceId!==held.adminInstanceId)throw Error('Native administration release is unconfirmed');
-   this.held=undefined;
+   this.releases.set(context.fenceId,evidence);if(this.releases.size>256)this.releases.delete(this.releases.keys().next().value!);this.held=undefined;
   }catch(error){held.phase='unknown';throw error;}
  }
  get quiescenceParticipant(){return {
@@ -127,7 +129,7 @@ export class AdminConnection {
   reconcileRelease:async(input:Readonly<AdminFenceContext>&{outcome:'unchanged'|'ready';proof:AdminReleaseProof|AdminServiceReleaseProof})=>{
    const {outcome,proof,...context}=input;
    if(context.purpose==='service-stop')validateServiceRelease(context,outcome,proof);
-   if(!this.held){const lease=await this.acquire(context);if(!lease)throw Error('Replacement admin cannot prove native writer quiescence');}
+   if(!this.held&&!this.releases.has(context.fenceId)){const lease=await this.acquire(context);if(!lease)throw Error('Replacement admin cannot prove native writer quiescence');}
    await this.release(context,outcome,proof);
   },
  };}

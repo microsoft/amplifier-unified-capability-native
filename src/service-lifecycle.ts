@@ -15,3 +15,5 @@ export function validateServiceRelease(context:{fenceId:string;commandId:string;
  if(outcome==='ready'&&proof.serviceOutcome==='resumed'&&expected.instanceId!==observed.instanceId&&['resumeCommandId','exitReceiptId','readyReceiptId'].every(key=>token(proof[key])))return;
  throw Error('Exact authenticated service lifecycle release proof required');
 }
+
+export function evidenceKey(value:unknown):string {const canonical=(row:any):any=>Array.isArray(row)?row.map(canonical):row&&typeof row==='object'?Object.fromEntries(Object.keys(row).sort().map(key=>[key,canonical(row[key])])):row;return JSON.stringify(canonical(value));}
