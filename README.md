@@ -233,3 +233,11 @@ and live inspection are required; an old receipt or replacement connection never
 recreates authority. Release binds the externally authenticated product digest or
 an explicit aborted outcome. This adapter does not authenticate supervisor stop
 receipts or claim that independent product stores were captured.
+
+The optional native `maintenance.appReset` v1 marker enables only the four
+`maintenance.appReset.prepare/apply/inspect/restore` routes. Prepare and mutations
+require the exact existing recovery `withMaintenanceFence`; detached callbacks,
+ordinary browser administration, and older peers refuse before dispatch. Exact
+receipt inspection is an explicit passive read while held. No connection is
+reopened to repeat uncertain work. `maintenanceCapabilities()` returns a cloned
+metadata declaration without reading private settings or starting a session.
