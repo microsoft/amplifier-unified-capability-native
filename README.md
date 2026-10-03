@@ -1,5 +1,9 @@
 # Unified native capabilities
 
+Start with the [local vision](docs/VISION.md), [versioned bridge contract](contracts/native-bridge.v1.md)
+and [agent entry](AGENTS.md). They map the inherited approved family direction to
+this repository's public promises, owners, executable checks and remaining gaps.
+
 Optional `HostConfig.capabilities` provider for native Amplifier settings and
 runtime controls. The generic AHP host remains unaware of Python objects or
 Amplifier transcript/configuration files. All runtime calls cross negotiated

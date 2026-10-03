@@ -10,7 +10,10 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "docs",
+    "contracts",
+    "AGENTS.md"
   ],
   "engines": {
     "node": ">=22.16"
