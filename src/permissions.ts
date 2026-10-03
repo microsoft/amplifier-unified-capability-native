@@ -17,6 +17,7 @@ const refused=(message:string)=>Object.assign(Error(message),{data:{executed:fal
 const fieldSets:Record<string,string[]>={'permissions.get':['scope','sessionId'],'permissions.save':['scope','expectedRevision','allowed','denied','sessionId'],'permissions.receipt':['commandId','sessionId']};
 export class PermissionsCapabilities {
  readonly manifest={version:1 as const,topics:{permissions:{uri:'amplifier-capability://native/permissions',version:1 as const,watch:true as const,scope:'host' as const}},actions:Object.fromEntries(Object.keys(PERMISSION_ACTION_SCHEMAS).map(operation=>[operation,{topic:'permissions',operation,method:'x-amplifier/capabilityAction'}]))};
+ readonly quiescenceAccess={'permissions.get':'read' as const,'permissions.receipt':'read' as const};
  private revision=0;
  constructor(private options:PermissionsOptions){}
  actionSchemas=async()=>structuredClone(PERMISSION_ACTION_SCHEMAS);

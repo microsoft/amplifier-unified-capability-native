@@ -16,6 +16,7 @@ test('private scope selection never enters shared topic; same revision and exact
  assert.equal(calls[0].args.commandId,'command');assert.equal(calls[0].args.sessionId,undefined);
  const metadata=await owner.read({topic:'permissions',scope:'host',clientId:'other'});assert.equal(metadata.data.permissions,undefined);assert.equal(metadata.data.permissionsCapability.available,true);assert.equal(metadata.data.permissionsCapability.scope,undefined);
  const read=await owner.action(request('permissions.get',{sessionId:sid,scope:'local'}),context);assert.deepEqual(read.result,view);assert.deepEqual(read.updates,[]);assert.equal(changes.length,1,'Reads must not produce read-invalidation loops');
+ assert.deepEqual(owner.quiescenceAccess,{'permissions.get':'read','permissions.receipt':'read'});
  const schemas=await owner.actionSchemas();assert.ok(schemas['permissions.save'].schema.properties.sessionId);
 });
 
