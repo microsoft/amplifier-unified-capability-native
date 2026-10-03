@@ -1,3 +1,4 @@
+import {bundleCommandIds,exactBundleReceipt} from './bundle-commands.js';
 import {ACTION_SCHEMAS} from './action-schemas.js';
 /** Unified presentation capability owner. No host-private or native-engine imports. */
 export type Json=Record<string,any>;
@@ -8,6 +9,10 @@ export interface Options {
  nativeControl:(session:string,operation:string,args:Json)=>Promise<Json>;
  /** Trusted integration resolves/authorizes workspace; this package never accepts a native path as authority. */
  nativeAdmin?:(operation:string,args:Json,context:Context)=>Promise<Json>;
+ /** Passive initialization metadata from the configured engine, never caller capability assertions. */
+ nativeBundleCommands?:()=>Promise<Json|undefined>;
+ /** Exact selected-session receipt route; must not start a worker or invoke active nativeControl. */
+ nativeBundleReceipt?:(session:string,commandId:string)=>Promise<Json>;
  maxScopes?:number;cacheMs?:number;clock?:()=>number;
  onInvalidate?:(topic:Topic,scope:string)=>void;
 }
@@ -29,6 +34,7 @@ interface ScopeState {records:Map<Topic,Cached>;results:Json;overlays:Partial<Re
 /** Records contain only the requested topic, are bounded, and expire independently of native durability. */
 export class NativeCapabilities {
  readonly manifest:{version:1;topics:Record<string,{uri:string;version:1;watch:true}>;actions:Record<string,{topic:string;operation:string;method:typeof METHOD}>};
+ private bundleNegotiation?:Promise<boolean>;private bundleCommands=false;
  private scopes=new Map<string,ScopeState>();private inflight=new Map<string,Promise<RecordValue>>();private revision=0;
  constructor(private options:Options){
   const actions:Record<string,{topic:string;operation:string;method:typeof METHOD}>={};
@@ -36,7 +42,18 @@ export class NativeCapabilities {
   if(options.nativeAdmin)for(const [name,topic]of Object.entries(ADMIN))actions[name]={topic,operation:name,method:METHOD};
   this.manifest={version:1,topics:Object.fromEntries(TOPICS.map(topic=>[topic,{uri:`amplifier-capability://native/${topic}`,version:1 as const,watch:true as const}])),actions};
  }
- actionSchemas=async()=>Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);return [name,copy(value)];}));
+ /** Trusted composition awaits this before registering the synchronous manifest. */
+ negotiateBundleCommands=async():Promise<boolean>=>{
+  if(!this.options.nativeBundleCommands)return false;
+  if(!this.bundleNegotiation)this.bundleNegotiation=(async()=>{
+   const m=await this.options.nativeBundleCommands!();
+   this.bundleCommands=m?.version===1&&m.commandId==='optional-legacy-required-for-receipt'&&m.passiveReceipt===true&&m.replayUnknown===false&&m.maxResultBytes===524288&&m.adminReceipt==='bundle.receipt'&&m.activationReceipt==='_amplifier/bundle/receipt'&&m.activation==='bundle.switch'&&['bundle.save','bundle.export','bundle.default'].every(op=>m.adminOperations?.includes(op));
+   if(this.bundleCommands&&this.options.nativeAdmin&&this.options.nativeBundleReceipt)this.manifest.actions['bundle.receipt']={topic:'bundles',operation:'bundle.receipt',method:METHOD};
+   return this.bundleCommands;
+  })();
+  return this.bundleNegotiation;
+ };
+ actionSchemas=async()=>{await this.negotiateBundleCommands();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);return [name,copy(value)];}));};
  private now(){return(this.options.clock??Date.now)();}
  private state(scope:string){
   let value=this.scopes.get(scope);if(!value){
@@ -83,7 +100,20 @@ export class NativeCapabilities {
   if(request.version!==1||!TOPICS.includes(topic)||typeof request.commandId!=='string'||!request.commandId)throw Error('Valid capability version and command identity required.');
   if(scope!=='host'&&context.session?.uri!==scope)throw Error('Authenticated session context must match the requested scope.');
   if(args.sessionId&&args.sessionId!==scope)throw Error('Session selector disagrees with authenticated scope.');
+  await this.negotiateBundleCommands();
   const advertised=Object.values(this.manifest.actions).find(row=>row.operation===request.operation&&row.topic===topic);if(!advertised)throw Error('Native action not advertised.');
+  if(request.operation==='bundle.receipt'){
+   const original=args.operation,ids=bundleCommandIds(scope,original,args.commandId);
+   if(original==='bundle.switch'&&scope==='host')throw Error('Selected session required for activation receipt.');
+   const receipts:Json={};
+   const inspect=async(effect:string,id:string,activation:boolean)=>{
+    const value=activation?await this.options.nativeBundleReceipt!(scope,id):await this.options.nativeAdmin!('bundle.receipt',{commandId:id},context);
+    return exactBundleReceipt(value,effect,id);
+   };
+   receipts.command=await inspect(original,ids.commandId,original==='bundle.switch');
+   if(ids.activationCommandId)receipts.activation=await inspect('bundle.switch',ids.activationCommandId,true);
+   return {accepted:true,updates:[],invalidate:[],result:{commandId:args.commandId,operation:original,receipts},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+  }
   let op=request.operation,arguments_=args,result:Json;
   s.pending++;
   try {
@@ -94,6 +124,7 @@ export class NativeCapabilities {
    if(request.operation==='runtime.control'||['configuration.inspect','configuration.apply','configuration.toggle','configuration.cancel','bundle.preview','bundle.switch'].includes(op)){
     const caps=await this.native(scope,'capabilities');if(![...(caps.controls??[]),'capabilities',...(caps.workerOperations??[]),'steer'].includes(op))throw Error(`The connected agent does not support ${op}.`);
     if(op==='configuration.apply'&&!/^[a-f0-9]{64}$/.test(arguments_.expectedConfigurationRevision??''))return {accepted:false,updates:[],invalidate:[],result:{applied:false,executed:false,reason:'configuration-revision-required',message:'Inspect and review the current mount plan before applying a configuration draft.'},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+    if(op==='bundle.switch'&&this.bundleCommands)arguments_={...arguments_,commandId:bundleCommandIds(scope,op,request.commandId).commandId};
     if(op==='configuration.apply'||['task.create','task.update','task.pause','task.resume','task.block','task.complete'].includes(op))arguments_={...arguments_,commandId:request.commandId};
     try{result=await this.native(scope,op,arguments_);}catch(error){
      const data=(error as {data?:Json}).data;
@@ -118,6 +149,7 @@ export class NativeCapabilities {
     if(op==='bundle.switch')s.overlays.configuration={...(s.overlays.configuration??{}),...(result.requiresModelChoice?{bundlePreview:result.preview}:{}),bundleChange:{phase:result.requiresModelChoice?'needs-model':'ready',action:'bundle.switch'},...(result.bundle?{bundle:result.bundle}:{}),...(result.configuration??{})};
    }else{
     if(!this.options.nativeAdmin)throw Error('Native administration unavailable.');
+    if(this.bundleCommands&&['bundle.save','bundle.export','bundle.default'].includes(op))arguments_={...arguments_,commandId:bundleCommandIds(scope,op,request.commandId).commandId};
     // The injected owner resolves context; args.workspace is only a requested selector.
     if(['bundle.export','bundle.save'].includes(op)&&scope!=='host'){const config=await this.native(scope,'configuration.inspect');arguments_={...arguments_,effectiveConfig:config.plan,rootBundle:config.bundle,resources:await this.native(scope,'configuration.exportResources')};}
     if(['providers.login','providers.loginStatus','providers.loginCancel'].includes(op)&&scope!=='host'){
@@ -136,7 +168,23 @@ export class NativeCapabilities {
      while(Object.keys(overlay.operations).length>64)delete overlay.operations[Object.keys(overlay.operations)[0]];
      Object.assign(overlay,result);s.overlays[topic]=overlay;
     }
-    if(op==='bundle.save'&&scope!=='host'&&result.saved?.name){const activated=await this.native(scope,'bundle.switch',{bundle:result.saved.name});if(activated.requiresModelChoice)throw Error('Bundle was saved, but activation needs an explicit model choice.');result={...result,activation:activated};s.overlays.configuration={...(s.overlays.configuration??{}),...activated.configuration,bundle:activated.bundle,bundleChange:{phase:'ready',action:op}};delete s.results['configuration.providers'];try{s.results['configuration.providers']=await this.native(scope,'configuration.providers');}catch{s.results['configuration.providers']={available:false,reason:'refresh-unavailable'};}}
+    if(op==='bundle.save'&&scope!=='host'&&result.saved?.name){
+     // Saving and activation are distinct effects. A settled save must stay
+     // inspectable even when activation needs input or loses its reply.
+     let activated:Json;
+     try{activated=await this.native(scope,'bundle.switch',{bundle:result.saved.name,...(this.bundleCommands?{commandId:bundleCommandIds(scope,'bundle.save',request.commandId).activationCommandId}:{})});}
+     catch(error){const data=(error as {data?:Json}).data;activated=data?.executed===false
+      ?{state:'failed',executed:false,reason:data.reason??'activation-refused'}
+      :{state:'unknown',reason:'activation-outcome-unknown'};}
+     result={...result,activation:activated};
+     const phase=activated.requiresModelChoice?'needs-model':activated.state==='unknown'?'unknown':activated.state==='failed'?'error':'ready';
+     s.overlays.configuration={...(phase==='unknown'?{}:s.overlays.configuration??{}),...(phase==='ready'?{...activated.configuration,...(activated.bundle?{bundle:activated.bundle}:{})}:{}),...(activated.requiresModelChoice?{bundlePreview:activated.preview}:{}),bundleChange:{phase,action:op}};
+     if(phase==='unknown')s.results['configuration.providers']={available:false,reason:'activation-outcome-unknown'};
+     if(phase==='ready'){
+      delete s.results['configuration.providers'];
+      try{s.results['configuration.providers']=await this.native(scope,'configuration.providers');}catch{s.results['configuration.providers']={available:false,reason:'refresh-unavailable'};}
+     }
+    }
     if(topic==='configuration')s.overlays.configuration={...(s.overlays.configuration??{}),registry:{...(s.overlays.configuration?.registry??{}),...result}};
     if(topic==='bundles')s.overlays.bundles={...(s.overlays.bundles??{}),...Object.fromEntries(['bundles','registeredBundles','bundleDefaults'].filter(k=>k in result).map(k=>[k,result[k]])),...(result.discovery?{bundleDiscovery:result.discovery}:{})};
    }

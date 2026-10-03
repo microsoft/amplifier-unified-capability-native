@@ -1,5 +1,9 @@
 # Unified native capabilities
 
+Start with the [local vision](docs/VISION.md), [versioned bridge contract](contracts/native-bridge.v1.md)
+and [agent entry](AGENTS.md). They map the inherited approved family direction to
+this repository's public promises, owners, executable checks and remaining gaps.
+
 Optional `HostConfig.capabilities` provider for native Amplifier settings and
 runtime controls. The generic AHP host remains unaware of Python objects or
 Amplifier transcript/configuration files. All runtime calls cross negotiated
@@ -241,3 +245,108 @@ ordinary browser administration, and older peers refuse before dispatch. Exact
 receipt inspection is an explicit passive read while held. No connection is
 reopened to repeat uncertain work. `maintenanceCapabilities()` returns a cloned
 metadata declaration without reading private settings or starting a session.
+
+
+### Custom bundle save and activation outcomes
+
+`bundle.save` retains a completed native save when the subsequent `bundle.switch`
+needs a model choice, refuses before an effect, or loses its reply. The action
+returns `accepted:true` with the original `saved` result and a separate `activation`.
+A model choice preserves native `requiresModelChoice`/`preview` and publishes
+`configuration.bundleChange.phase = 'needs-model'`; the old mounted bundle remains
+current. Explicit native `executed:false` activation errors produce
+`activation:{state:'failed',executed:false,reason}` and phase `error`. Other activation
+errors produce `activation:{state:'unknown',reason:'activation-outcome-unknown'}`
+and phase `unknown`; this path dispatches no automatic retry or provider refresh.
+Only a confirmed activation publishes the replacement plan. Clients must inspect
+unknown activation before explicitly choosing another effect. This package's
+cache is not a durable receipt store. This preserves the delivered action response;
+legacy calls cannot recover the original saved/activation body after a lost outer
+reply or process restart. Negotiated native child receipts below supply the
+separately qualified successor path. Host command status/detail does not retain
+that body. Inspecting current settings or mounted state does not prove the original
+command's outcome and never authorizes replay.
+
+### Negotiated native bundle receipts (successor binding)
+
+Trusted composition can supply `nativeBundleCommands`, an asynchronous resolver
+of the configured engine's actual initialization metadata, and
+`nativeBundleReceipt(session, childCommandId)`, a separate passive selected-session
+route. Await `negotiateBundleCommands()` before registering the synchronous
+manifest. `AdminConnection.bundleCommandCapabilities()` reads only its negotiated
+metadata. `readBundleReceipt({sessionId,cwd,commandId})` uses the same passive
+administration transport with host-resolved native identity and canonical history
+workspace; clients cannot supply those selectors as authority. Receipt support requires the native `bundleCommands` v1 declaration;
+older peers retain delivered-response behavior and do not advertise recovery.
+The passive callback must route `_amplifier/bundle/receipt` with trusted native
+session/workspace identity, never invoke active `nativeControl` or start a worker.
+
+On supported peers, save/export/default/switch receive bounded deterministic
+child command IDs bound to the original outer identity, selected scope and effect.
+Save and activation have distinct identities. `bundle.receipt` accepts
+`{operation, commandId}` for the original outer operation and identity, and returns
+exact native children as `result.receipts.command` and, for selected-session saves,
+`result.receipts.activation`. An absent native receipt remains `null`; unknown,
+refused and confirmed needs-model results remain native outcomes. Inspection
+returns no topic updates or invalidations and never dispatches a mutation.
+Receipt lookup must retain the originally admitted canonical workspace. For a
+selected conversation, trusted composition uses its stable history workspace,
+not a relocated execution directory. For host-scoped administration, changing the
+configured default workspace does not transfer receipt authority: consumers must
+retain and reauthorize the original workspace context. A `null` receipt under a
+new workspace proves neither success nor absence in the old workspace; this bridge
+never searches other scopes or retries a mutation to recover it. Recovery after a
+host default-workspace change without the original binding is unqualified.
+This bridge stores no durable result copies. Source and independently installed consumer suites each pass 45 checks with zero
+skips against native `4d2ea06` (and the separate legacy refusal case against
+`a434719`). The positive receipt fixture qualifies lost save/activation replies,
+whole native/admin restart, exact needs-model preview, and wrong-scope refusal
+with zero provider calls. Host transport and browser recovery remain separate.
+
+`AMPLIFIER_BUNDLE_COMMANDS_PYTHON` selects the additive native successor for
+`test/bundle-receipts.integration.test.ts`. The fixture injects reply loss after
+actual native save or activation, then discards an outer delivered response and
+restarts both native and administration processes. A fresh bridge must recover
+exact native child receipts without opening another session or calling active
+runtime controls. Passing this fixture establishes only its recorded installed
+peer and owned synthetic bundle, not host transport/browser/deployment acceptance.
+
+For an independent package consumer, set `AMPLIFIER_NATIVE_CAPABILITY_MODULE`
+to the installed package's absolute `dist/index.js` path when running the tests.
+Provider fixture tests and the actual installed-native presentation test both
+consume this entrypoint. The latter checks saved provider opaque fields/redaction,
+all five configuration sections, local/project source separation, workspace bundle
+defaults and foreign workspace refusal with zero runtime calls. These checks do
+not mount the configured fixture modules or qualify browser editors, provider
+accounts or model inference.
+
+The opt-in `AMPLIFIER_TEST_NATIVE_APPROVAL=1` installed ACP regression exercises
+an approval-backed generic tool for both authenticated origins. At native
+`f530e541` the first approved call does not settle: `control` retains the worker
+command lock while `approval` requires the same lock. The reproduction refuses to
+retry, times out after 15 seconds, retains its owned state and reports its native
+session ID. It is visibly skipped by default; enable it explicitly when qualifying a
+sealed native successor. Ordinary actual-runtime checks qualify goals, unlimited turn
+budgets, context limits, catalog/usage, mode absence and local-only export refusal;
+no inference is requested. A local fixture source has no portable Git equivalent,
+so the actual export test expects native refusal and verifies no activation.
+
+Set `AMPLIFIER_TEST_PORTABLE_BUNDLE=1` with the native owner's tiny installed
+provider-fixture wheel to exercise actual save-and-use. The new fixture omits
+private module source paths, applies context limit 7777 through native CAS,
+saves the selected plan and activates it exactly once through this bridge.
+The installed check verifies the saved body, reloaded native plan, zero model
+calls and approved user/agent tools. This synthetic bundle is a test fixture,
+not a production package or account acceptance. Without this flag the same
+fixture deliberately retains local paths and tests the native export refusal.
+
+`AMPLIFIER_TEST_RESULT_RECOVERY_GAP=1` adds a causal gap witness with a fresh
+portable fixture: complete one save/activation, discard its delivered body,
+replace the bridge and administration process, and inspect public native methods.
+The legacy bridge does not negotiate receipts or forward child IDs; older peers
+refuse receipt inspection, while receipt-capable peers return null for these
+legacy IDs. A cold topic contains current catalog state without the original
+saved/activation result. The saved bytes remain unchanged and no mutation is
+resent. A passing gap witness proves the limitation, not receipt recovery.
+The separate negotiated successor and positive fixture above supply exact native
+child receipts; they do not make legacy calls retrospectively recoverable.

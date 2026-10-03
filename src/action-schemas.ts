@@ -788,6 +788,10 @@ export const ACTION_SCHEMAS:Record<string,{description:string;schema:Record<stri
       "additionalProperties": false
     }
   },
+  "bundle.receipt": {
+    "description": "Inspect exact native receipts for an original bundle command without starting or replaying work",
+    "schema": {"type":"object","properties":{"commandId":{"type":"string","minLength":1,"maxLength":256},"operation":{"enum":["bundle.save","bundle.export","bundle.default","bundle.switch"]}},"required":["commandId","operation"],"additionalProperties":false}
+  },
   "bundle.save": {
     "description": "Save and use the conversation's customized bundle",
     "schema": {
