@@ -84,3 +84,37 @@ the configuration topic is invalidated lazily and the host records a known
 refusal. Other transport/native errors still propagate as uncertain outcomes.
 The client preserves a dirty draft and requires explicit review before another
 apply command. Missing base revisions are known refusals before native mutation.
+
+### Native administration quiescence
+
+One shared `AdminConnection` can cover native settings and maintenance users via
+its public `quiescenceParticipant` (default owner ID `native-admin`, configurable
+with `AdminOptions.ownerId`). Register it as a required writer participant; map
+all native-admin callback paths to that authority. The participant obtains an
+actual held native lifecycle lease, including post-response provider sign-in and
+cross-process admin writers. A cold connection starts only the passive ACP
+adapter to obtain this proof, never a Core session. Legacy agents without the
+negotiated lifecycle capability refuse acquisition.
+
+For reviewed native recovery, compose the two independent gates:
+
+```ts
+withQuiescenceMaintenance: (input, work) =>
+  host.withQuiescenceMaintenance(input, () =>
+    admin.withMaintenanceFence(input, work))
+```
+
+The recovery callback may then use `admin.perform` on that same connection.
+Only the exact matching recovery fence admits the maintenance namespace;
+ordinary configuration/generation mutations remain closed. Detached promises
+lose this privilege when the trusted callback returns. The trusted reset preview
+may pass its already-resolved native history cwd only inside this fence; generic
+client administration cannot select native paths.
+
+`inspectLifecycle()` supplies bounded native-owned activity and lease identity.
+A participant known refusal means acquisition caused no effect; loss or timeout
+retains uncertainty. Release requires the host's authenticated exact proof.
+Replacement reconciliation acquires fresh native OS writer proof before release;
+a new process alone does not prove an earlier operation completed. Multiple
+independent participants for the same native home must be aggregated behind one
+shared admin authority rather than trying to hold two exclusive leases.
