@@ -1,3 +1,4 @@
+import {contextClearMetadata,contextClearUnavailable} from './context-clear.js';
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {Readable,Writable,Transform} from 'node:stream';
@@ -27,7 +28,7 @@ const MAINTENANCE=new Set([...APP_RESETS,...CAPTURES,...CACHES,'maintenance.arti
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
- private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private calls=0;
+ private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private calls=0;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
  private releases=new Map<string,string>();
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
@@ -53,6 +54,7 @@ export class AdminConnection {
 
    const native=init.agentCapabilities?._meta?.['amplifier.dev/native'] as Json|undefined;
    if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Object.assign(Error('Agent has no launcher-enabled native administration v1 capability.'),{data:{executed:false,replayed:false,reason:'native-admin-unavailable'}});}
+   this.contextMetadata=native.contextClear?structuredClone(native.contextClear):undefined;
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
    this.maintenanceMetadata=native.admin.maintenance?structuredClone(native.admin.maintenance):undefined;
    this.historyImportSupported=native.admin.historyImport?.version===1&&native.admin.historyImport?.staged===true;
@@ -85,6 +87,15 @@ export class AdminConnection {
    if(this.bundleMetadata?.version!==1||this.bundleMetadata?.passiveReceipt!==true||this.bundleMetadata?.activationReceipt!=='_amplifier/bundle/receipt')throw Object.assign(Error('Native bundle receipts are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'bundle-receipt-unavailable'}});
    return await this.rpc('_amplifier/bundle/receipt',{sessionId:input.sessionId,cwd:input.cwd,commandId:input.commandId});
   }finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ /** Read the initialized peer metadata without a worker/session admission. */
+ async contextClearCapabilities():Promise<Json|undefined>{
+  this.calls++;try{await this.start();return this.contextMetadata?structuredClone(this.contextMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ /** Trusted host supplies immutable native history identity and canonical cwd. */
+ async readContextReceipt(input:{sessionId:string;cwd:string;commandId:string}):Promise<Json>{
+  if(!input||Object.keys(input).some(k=>!['sessionId','cwd','commandId'].includes(k))||typeof input.sessionId!=='string'||!input.sessionId||input.sessionId.length>200||typeof input.cwd!=='string'||!input.cwd||input.cwd.length>8192||typeof input.commandId!=='string'||!input.commandId||input.commandId.length>200||/[\u0000-\u001f]/.test(input.commandId))throw Error('Exact trusted native context receipt selectors required.');
+  this.calls++;try{await this.start();if(!contextClearMetadata(this.contextMetadata))throw contextClearUnavailable('Native passive context receipts are unavailable on this configured engine.');return await this.rpc('_amplifier/context/receipt',{...input});}finally{this.calls--;if(!this.calls)this.idle();}
  }
  perform=(operation:string,args:Json,context:Context):Promise<Json>=>this.invoke(operation,args,context);
  /** Trusted composition only: product authorizes this existing workspace; native launcher roots revalidate it. */

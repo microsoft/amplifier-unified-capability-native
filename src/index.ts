@@ -1,3 +1,4 @@
+import {contextClearCommandId,contextClearRevision,contextClearMetadata,exactContextClearReview,exactContextClearResult,exactContextReceipt,contextClearUnavailable} from './context-clear.js';
 import {bundleCommandIds,exactBundleReceipt} from './bundle-commands.js';
 import {ACTION_SCHEMAS} from './action-schemas.js';
 /** Unified presentation capability owner. No host-private or native-engine imports. */
@@ -13,6 +14,10 @@ export interface Options {
  nativeBundleCommands?:()=>Promise<Json|undefined>;
  /** Exact selected-session receipt route; must not start a worker or invoke active nativeControl. */
  nativeBundleReceipt?:(session:string,commandId:string)=>Promise<Json>;
+ /** Passive actual initialization metadata, never a caller capability assertion. */
+ nativeContextClear?:()=>Promise<Json|undefined>;
+ /** Host binds canonical native session identity/history cwd without opening a worker. */
+ nativeContextReceipt?:(session:string,commandId:string)=>Promise<Json>;
  maxScopes?:number;cacheMs?:number;clock?:()=>number;
  onInvalidate?:(topic:Topic,scope:string)=>void;
 }
@@ -36,6 +41,22 @@ interface ScopeState {records:Map<Topic,Cached>;results:Json;overlays:Partial<Re
 export class NativeCapabilities {
  readonly manifest:{version:1;topics:Record<string,{uri:string;version:1;watch:true}>;actions:Record<string,{topic:string;operation:string;method:typeof METHOD}>};
  private bundleNegotiation?:Promise<boolean>;private bundleCommands=false;
+ private contextNegotiation?:Promise<boolean>;private contextClear=false;
+ private contextAvailability:{state:'unnegotiated'|'ready'|'unsupported'|'unavailable';reason?:string}={state:'unnegotiated'};
+ contextClearAvailability=()=>copy(this.contextAvailability);
+ /** Trusted root composition awaits this before synchronous manifest registration. */
+ negotiateContextClear=async():Promise<boolean>=>{
+  if(!this.options.nativeContextClear)return false;
+  if(!this.contextNegotiation)this.contextNegotiation=(async()=>{
+   let metadata:Json|undefined;
+   try{metadata=await this.options.nativeContextClear!();}catch{this.contextAvailability={state:'unavailable',reason:'native-context-negotiation-unavailable'};return false;}
+   this.contextClear=contextClearMetadata(metadata)&&typeof this.options.nativeContextReceipt==='function';
+   this.contextAvailability={state:this.contextClear?'ready':'unsupported'};
+   if(this.contextClear)for(const operation of ['context.clear.review','context.clear','context.clear.receipt'])this.manifest.actions[operation]={topic:'runtime-control',operation,method:METHOD};
+   return this.contextClear;
+  })();
+  return this.contextNegotiation;
+ };
  private bundleAvailability:{state:'unnegotiated'|'ready'|'unsupported'|'unavailable';reason?:string}={state:'unnegotiated'};
  /** Availability of this initialized peer, not a permanent statement about its configured name. */
  bundleCommandAvailability=()=>copy(this.bundleAvailability);
@@ -66,7 +87,7 @@ export class NativeCapabilities {
   })();
   return this.bundleNegotiation;
  };
- actionSchemas=async()=>{await this.negotiateBundleCommands();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);return [name,copy(value)];}));};
+ actionSchemas=async()=>{await this.negotiateBundleCommands();await this.negotiateContextClear();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);return [name,copy(value)];}));};
  private now(){return(this.options.clock??Date.now)();}
  private state(scope:string){
   let value=this.scopes.get(scope);if(!value){
@@ -115,8 +136,34 @@ export class NativeCapabilities {
   if(request.version!==1||!TOPICS.includes(topic)||typeof request.commandId!=='string'||!request.commandId)throw Error('Valid capability version and command identity required.');
   if(scope!=='host'&&context.session?.uri!==scope)throw Error('Authenticated session context must match the requested scope.');
   if(args.sessionId&&args.sessionId!==scope)throw Error('Session selector disagrees with authenticated scope.');
-  await this.negotiateBundleCommands();
+  await this.negotiateBundleCommands();await this.negotiateContextClear();
+  if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)&&!this.contextClear)throw contextClearUnavailable();
   const advertised=Object.values(this.manifest.actions).find(row=>row.operation===request.operation&&row.topic===topic);if(!advertised)throw Error('Native action not advertised.');
+  if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)){
+   if(scope==='host')throw contextClearUnavailable('Select an admitted native session for context clearing.');
+   const operation=request.operation,meta={'amplifier.dev/operation':{id:request.commandId}};
+   if(operation==='context.clear.receipt'){
+    if(Object.keys(args).some(k=>k!=='commandId'))throw Error('Exact original context command identity required.');
+    const commandId=contextClearCommandId(scope,args.commandId);
+    const receipt=exactContextReceipt(await this.options.nativeContextReceipt!(scope,commandId),commandId);
+    return {accepted:true,updates:[],invalidate:[],result:{commandId:args.commandId,operation:'context.clear',receipt},_meta:meta};
+   }
+   let nativeArgs:Json={};
+   if(operation==='context.clear.review'){if(Object.keys(args).length)throw Error('Context clear review takes no arguments.');}
+   else{
+    if(Object.keys(args).some(k=>!['expectedHistoryRevision','expectedControlRevision'].includes(k))||!contextClearRevision(args.expectedHistoryRevision)||!contextClearRevision(args.expectedControlRevision))throw Error('Exact reviewed history and control revisions required.');
+    nativeArgs={...args,commandId:contextClearCommandId(scope,request.commandId)};
+   }
+   s.pending++;
+   try{
+    const raw=await this.native(scope,operation,nativeArgs);
+    const result=operation==='context.clear.review'?exactContextClearReview(raw):exactContextClearResult(raw);
+    s.results[operation]=copy(result);
+    if(operation==='context.clear'){delete s.results['context.clear.review'];delete s.results['goals.get'];delete s.results['goals.set'];delete s.results['goals.clear'];this.invalidate(scope);}
+    const updates=[this.record(scope,'runtime-control',this.runtime(scope,s),s)];
+    return {accepted:true,updates,invalidate:operation==='context.clear'?TOPICS.filter(t=>t!=='runtime-control'):[],result,_meta:meta};
+   }finally{s.pending--;}
+  }
   if(request.operation==='bundle.receipt'){
    const original=args.operation,ids=bundleCommandIds(scope,original,args.commandId);
    if(original==='bundle.switch'&&scope==='host')throw Error('Selected session required for activation receipt.');
@@ -133,7 +180,7 @@ export class NativeCapabilities {
   s.pending++;
   try {
    if(op==='runtime.control'){op=args.operation;arguments_=object(args.args??{});if(typeof op!=='string'||forbiddenFields.has(op))throw Error('Native operation required.');
-    if(['history.edit','history.revise','steer','steer.submit','session.relocate'].includes(op)||['question.','schedule.','observation.','memory.','operations.','kernels.'].some(prefix=>op.startsWith(prefix)))throw Error('Use the admitted capability owned by this operation; generic native controls cannot bypass its lifecycle or receipts.');
+    if(['context.clear','context.clear.review','context.clear.receipt','history.edit','history.revise','steer','steer.submit','session.relocate'].includes(op)||['question.','schedule.','observation.','memory.','operations.','kernels.'].some(prefix=>op.startsWith(prefix)))throw Error('Use the admitted capability owned by this operation; generic native controls cannot bypass its lifecycle or receipts.');
     if(op==='tool.invoke')arguments_={...arguments_,actor:context.origin??'ui'};
    }else{const {sessionId:_selector,...values}=arguments_;arguments_=values;}
    if(request.operation==='runtime.control'||['configuration.inspect','configuration.apply','configuration.toggle','configuration.cancel','bundle.preview','bundle.switch'].includes(op)){
