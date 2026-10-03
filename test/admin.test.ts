@@ -51,3 +51,16 @@ test('replacement admin proves native gate availability before authenticated hos
   assert.equal((await replacement.inspectLifecycle()).intakeClosed,false);await assert.rejects(stat(join(home,'projects')));
  }finally{await original.close();await replacement.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('actual native post-response writer emits negotiated idle advisory after a refused acquisition',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'admin-idle-event-')),workspace=join(dir,'workspace'),home=join(dir,'home'),flag=join(dir,'finish');await mkdir(workspace);await mkdir(home);const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],workerCommand:['/impossible']}));
+ const script=`import asyncio\nfrom pathlib import Path\nfrom amplifier_acp.admin import Administration\nclass Setup:\n def __init__(self):self.logins={}\n async def close(self):\n  for row in self.logins.values():row['task'].cancel()\n  await asyncio.gather(*(r['task'] for r in self.logins.values()),return_exceptions=True)\nasync def fake(self,workspace,operation,args):\n self.setup=Setup()\n async def wait():\n  while not Path(args['flag']).exists():await asyncio.sleep(.01)\n self.setup.logins['fixture']={'task':asyncio.create_task(wait())}\n return {'phase':'waiting'}\nAdministration.authorized=fake\nfrom amplifier_acp.server import main\nmain()`;
+ let signals=0;const admin=new AdminConnection({command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-c',script,'--config',config],cwd:workspace,resolveWorkspace:()=>workspace,onMayBeIdle:()=>signals++});
+ const context={fenceId:'idle-fence',commandId:'idle-command',purpose:'distribution-update' as const,instanceId:'host',dataScope:'scope'};
+ try{
+  await admin.perform('providers.login',{flag},{clientId:'fixture'});const before=signals;assert.ok(before>0,'ordinary request completion supplies a recheck signal');
+  assert.equal(await admin.quiescenceParticipant.acquire(context),null);assert.equal(signals,before);await writeFile(flag,'finish');
+  for(let n=0;n<300&&signals===before;n++)await new Promise(resolve=>setTimeout(resolve,10));assert.equal(signals,before+1,'native background completion arrives without polling administration');
+  const lease=await admin.quiescenceParticipant.acquire(context);assert.ok(lease);await lease.release('unchanged',{kind:'admission-refused'});
+ }finally{await admin.close();await rm(dir,{recursive:true,force:true});}
+});

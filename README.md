@@ -118,3 +118,9 @@ Replacement reconciliation acquires fresh native OS writer proof before release;
 a new process alone does not prove an earlier operation completed. Multiple
 independent participants for the same native home must be aggregated behind one
 shared admin authority rather than trying to hold two exclusive leases.
+
+`AdminOptions.onMayBeIdle` receives advisory recheck notifications when local
+request accounting reaches zero and when negotiated native administration reports
+that previously busy post-response work has settled. This uses the private
+`_amplifier/admin/idle` notification and introduces no periodic polling. The signal
+does not grant maintenance authority; always acquire the held participant again.
