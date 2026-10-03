@@ -69,3 +69,26 @@ test('actual native post-response writer emits negotiated idle advisory after a 
   const lease=await admin.quiescenceParticipant.acquire(context);assert.ok(lease);await lease.release('unchanged',{kind:'admission-refused'});
  }finally{await admin.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('staged import selects only a trusted workspace and preserves passive receipts under held intake',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const {createHash}=await import('node:crypto');const {realpath}=await import('node:fs/promises');
+ const dir=await realpath(await mkdtemp(join(tmpdir(),'admin-import-'))),workspace=join(dir,'workspace'),selected=join(dir,'selected'),home=join(dir,'home');await mkdir(workspace);await mkdir(selected);await mkdir(home);
+ const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:join(dir,'app'),adminWorkspaceRoots:[workspace,selected],adminHistoryImport:true,bundle:'fixture-bundle',workerCommand:['/impossible/import-worker']}));
+ const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace,env:{AMPLIFIER_SESSION_STATE_HOME:join(dir,'writer-state')}};
+ const admin=new AdminConnection(options),other=new AdminConnection(options),raw=Buffer.from(JSON.stringify([{role:'user',content:'Imported evidence'}]));
+ try{
+  await assert.rejects(admin.importHistory('modules.save',{module:'forbidden'},selected),/Only native history import/);
+  await assert.rejects(admin.importHistory('history.import.receipt',{commandId:'absent'},dir),/outside launcher/);
+  const begin=await admin.importHistory('history.import.begin',{commandId:'begin',format:'json',bytes:raw.length,sha256:createHash('sha256').update(raw).digest('hex')},selected);assert.equal(begin.status,'succeeded');
+  const chunk=await admin.importHistory('history.import.chunk',{commandId:'chunk',uploadId:begin.result.uploadId,offset:0,contentBase64:raw.toString('base64')},selected);assert.equal(chunk.status,'succeeded');
+  const preview=await admin.importHistory('history.import.preview',{commandId:'preview',uploadId:begin.result.uploadId},selected);assert.equal(preview.status,'succeeded');
+  const commit=await admin.importHistory('history.import.commit',{commandId:'commit',previewHash:preview.result.previewHash},selected);assert.equal(commit.status,'succeeded');assert.equal(commit.result.historyCwd,selected);assert.equal(commit.result.workReplayed,false);
+  assert.deepEqual(await other.importHistory('history.import.receipt',{commandId:'commit'},selected),commit);
+  await assert.rejects(admin.perform('history.import.receipt',{commandId:'commit'},{clientId:'browser'}),/another authorized workspace/);
+  const context={fenceId:'import-held',commandId:'recovery-command',purpose:'recovery' as const,instanceId:'host',dataScope:'scope'};
+  const lease=await admin.quiescenceParticipant.acquire(context);assert.ok(lease);
+  assert.deepEqual(await admin.importHistory('history.import.receipt',{commandId:'commit'},selected),commit);
+  await assert.rejects(admin.importHistory('history.import.begin',{commandId:'blocked'},selected),/intake is held/);
+  await lease.release('unchanged',{kind:'admission-refused'});
+ }finally{await admin.close();await other.close();await rm(dir,{recursive:true,force:true});}
+});

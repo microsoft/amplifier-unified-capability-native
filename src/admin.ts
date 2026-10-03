@@ -13,7 +13,8 @@ export interface AdminOptions {
 }
 export interface AdminFenceContext {fenceId:string;commandId:string;purpose:'recovery'|'distribution-update';instanceId:string;dataScope:string;}
 export interface AdminReleaseProof {verified:true;fenceId:string;commandId:string;outcome:'unchanged'|'ready';instanceId:string;dataScope:string;receiptId:string;}
-const READS=new Set(['maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
+const IMPORTS=new Set(['history.import.begin','history.import.chunk','history.import.preview','history.import.commit','history.import.receipt']);
+const READS=new Set(['history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
 const MAINTENANCE=new Set(['maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
@@ -46,13 +47,20 @@ export class AdminConnection {
   try{return await Promise.race([this.client!.extMethod(method,params) as Promise<Json>,new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>{void this.close();reject(Error('Native administration timed out; outcome unknown and no operation was replayed.'));},this.options.timeoutMs??120000);})]);}
   finally{if(timer)clearTimeout(timer);}
  }
- perform=async(operation:string,args:Json,context:Context):Promise<Json>=>{
+ perform=(operation:string,args:Json,context:Context):Promise<Json>=>this.invoke(operation,args,context);
+ /** Trusted composition only: product authorizes this existing workspace; native launcher roots revalidate it. */
+ importHistory=(operation:string,args:Json,workingDirectory:string):Promise<Json>=>{
+  if(!IMPORTS.has(operation))return Promise.reject(Error('Only native history import operations may select an import workspace.'));
+  if(typeof workingDirectory!=='string'||!workingDirectory)return Promise.reject(Error('Authorized existing import workspace required.'));
+  return this.invoke(operation,args,{clientId:''},workingDirectory);
+ };
+ private invoke=async(operation:string,args:Json,context:Context,importWorkspace?:string):Promise<Json>=>{
   const scope=this.maintenance.getStore(),permitted=this.held?.phase==='held'&&scope?.active&&scope.fenceId===this.held.context.fenceId&&scope.commandId===this.held.context.commandId&&MAINTENANCE.has(operation);
   if(this.held&&!READS.has(operation)&&!permitted)throw fenced();
   if(this.closed)throw Error('Native administration connection closed; work is never replayed');
   this.calls++;
   try{
-   const cwd=await this.options.resolveWorkspace(context);await this.start();
+   const cwd=importWorkspace??await this.options.resolveWorkspace(context);await this.start();
    const {sessionId:_,id,...values}=args;if(id!==undefined)values.id=id;
    if('home' in values||'appHome' in values||'cwd' in values&&!(permitted&&operation==='maintenance.reset.preview'))throw Error('Native administration launch authority cannot be supplied by clients.');
    const authorization=permitted?{fenceId:this.held!.context.fenceId,commandId:this.held!.context.commandId,leaseId:this.held!.leaseId}:undefined;

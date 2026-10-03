@@ -133,3 +133,14 @@ and reset. `maintenance.archive.manifest` is an explicitly classified passive re
 and remains usable under a held admin fence. The adapter never maps these private
 operations directly into arbitrary client actions or accepts client-supplied native
 paths. Public selected-archive review is supplied by the independent recovery owner.
+
+Trusted history-import composition can call
+`admin.importHistory(operation, args, workingDirectory)` after product workspace
+authorization. This narrow method permits only `history.import.begin/chunk/preview/commit/receipt`;
+the native launcher independently revalidates its configured workspace roots and
+`adminHistoryImport` opt-in. It uses the same request, cross-process writer,
+quiescence and unknown-outcome accounting as other admin calls. Only exact
+`history.import.receipt` remains readable during a held fence. A native ID in a
+browser request is never adoption authority; the host must independently inspect
+the exact configured engine's committed native receipt. No generic `args.cwd`
+reflection is added.
