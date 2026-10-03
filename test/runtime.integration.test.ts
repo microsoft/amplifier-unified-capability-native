@@ -26,13 +26,14 @@ test('installed Core/Foundation native controls preserve selected session, user/
  let stderr='';child.stderr.on('data',chunk=>stderr=(stderr+chunk).slice(-8000));
  let approvalCount=0,unknown=false;
  const client=new ClientSideConnection(()=>({sessionUpdate:async()=>{},requestPermission:async params=>{approvalCount++;return {outcome:{outcome:'selected' as const,optionId:params.options.find(row=>row.kind==='allow_once')?.optionId??params.options[0].optionId}};}}),ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>));
+ let replacementAdmin:any;
  const admin=new AdminConnection({command:python!,args:['-I','-B','-m','amplifier_acp','--config',join(dir,'native.json')],cwd:workspace,env,resolveWorkspace:()=>workspace});
  try{
   const initialized=await client.initialize({protocolVersion:1,clientCapabilities:{_meta:{'amplifier.dev/native':{version:1}}}});
   assert.equal((initialized.agentCapabilities?._meta?.['amplifier.dev/native'] as any).version,1);
-  const native=await client.newSession({cwd:workspace,mcpServers:[]});const uri='ahp-session:/owned-runtime',calls:any[]=[];
+  const native=await client.newSession({cwd:workspace,mcpServers:[]});const uri='ahp-session:/owned-runtime',calls:any[]=[],adminCalls:any[]=[];
   const deadline=async<T>(work:Promise<T>):Promise<T>=>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([work,new Promise<never>((_,reject)=>{timer=setTimeout(()=>{unknown=true;reject(Error('Native control did not settle within 15s; approvals answered: '+approvalCount+'; native session: '+native.sessionId+'; owned state retained: '+dir));},15000);})]);}finally{if(timer)clearTimeout(timer);}};
-  const provider=createNativeCapabilities({nativeAdmin:admin.perform,nativeControl:async(scope:string,operation:string,args:any)=>{assert.equal(scope,uri);calls.push({operation,args});return deadline(client.extMethod('_amplifier/native',{sessionId:native.sessionId,operation,args}) as Promise<any>);}});
+  const provider=createNativeCapabilities({nativeAdmin:async(operation:string,args:any,context:any)=>{adminCalls.push({operation,args});return admin.perform(operation,args,context);},nativeControl:async(scope:string,operation:string,args:any)=>{assert.equal(scope,uri);calls.push({operation,args});return deadline(client.extMethod('_amplifier/native',{sessionId:native.sessionId,operation,args}) as Promise<any>);}});
   let command=0;const context={clientId:'actual-browser',session:{uri,workingDirectory:workspace},origin:'ui' as const};
   const action=(operation:string,args:any={},origin:'ui'|'agent'='ui')=>provider.action({channel:uri,topic:'runtime-control',operation:'runtime.control',args:{operation,args},commandId:'runtime-'+ ++command,version:1},{...context,origin});
   const caps=await action('capabilities');assert.ok(caps.result.controls.includes('goals.set'));
@@ -50,13 +51,31 @@ test('installed Core/Foundation native controls preserve selected session, user/
   if(process.env.AMPLIFIER_TEST_PORTABLE_BUNDLE==='1'){
    const plan=structuredClone(mounted.result.plan);plan.session.context.config={...plan.session.context.config,max_tokens:7777};
    await provider.action({channel:uri,topic:'configuration',operation:'configuration.apply',args:{config:plan,expectedConfigurationRevision:mounted.result.configurationRevision},commandId:'apply',version:1},context);
-   const saved=await provider.action({channel:uri,topic:'bundles',operation:'bundle.save',args:{sessionId:uri,name:'bridge-saved',description:'Owned installed consumer'},commandId:'save',version:1},context);
+   let saved:any=await provider.action({channel:uri,topic:'bundles',operation:'bundle.save',args:{sessionId:uri,name:'bridge-saved',description:'Owned installed consumer'},commandId:'save',version:1},context);
    assert.equal(saved.accepted,true);assert.equal(saved.result.saved.name,'bridge-saved');assert.ok(saved.result.activation.bundle);
    assert.equal(await readFile(saved.result.saved.uri,'utf8'),saved.result.export.content);
    assert.equal(calls.filter(row=>row.operation==='bundle.switch').length,1);
    const current=await action('configuration.inspect');assert.equal(current.result.plan.session.context.config.max_tokens,7777);
    assert.equal((await action('usage.inspect')).result.calls,0);
    await assert.rejects(readFile(join(dir,'provider-calls.log')));
+   await t.test('known exact-result recovery gap after dropped response and bridge/admin replacement',{skip:process.env.AMPLIFIER_TEST_RESULT_RECOVERY_GAP!=='1'},async()=>{
+    assert.equal(saved._meta['amplifier.dev/operation'].id,'save');
+    assert.equal(adminCalls.find(row=>row.operation==='bundle.save').args.commandId,undefined);
+    assert.equal(calls.find(row=>row.operation==='bundle.switch').args.commandId,undefined);
+    const savedUri=saved.result.saved.uri,body=await readFile(savedUri,'utf8');
+    saved=undefined; // The recipient loses the delivered body; never resend the mutation.
+    await admin.close();
+    replacementAdmin=new AdminConnection({command:python!,args:['-I','-B','-m','amplifier_acp','--config',join(dir,'native.json')],cwd:workspace,env,resolveWorkspace:()=>workspace});
+    const replacement=createNativeCapabilities({nativeAdmin:replacementAdmin.perform,nativeControl:async(scope:string,operation:string,args:any)=>{
+     assert.equal(scope,uri);return deadline(client.extMethod('_amplifier/native',{sessionId:native.sessionId,operation,args}) as Promise<any>);
+    }});
+    assert.equal(replacement.manifest.actions['bundle.receipt'],undefined);
+    await assert.rejects(replacementAdmin.perform('bundle.receipt',{commandId:'save'},context),/Unknown native administration operation/);
+    const projection=await replacement.read({uri:'amplifier-capability://native/bundles',topic:'bundles',scope:uri,clientId:context.clientId});
+    assert.equal(projection.data.saved,undefined);assert.equal(projection.data.activation,undefined);
+    assert.equal(await readFile(savedUri,'utf8'),body);
+    assert.equal(calls.filter(row=>row.operation==='bundle.switch').length,1);
+   });
   }else{
   await assert.rejects(provider.action({channel:uri,topic:'bundles',operation:'bundle.save',args:{sessionId:uri,name:'bridge-saved',description:'Owned installed consumer'},commandId:'save',version:1},context),/local source without a portable Git equivalent/);
   assert.equal(calls.filter(row=>row.operation==='bundle.switch').length,0);
@@ -67,5 +86,5 @@ test('installed Core/Foundation native controls preserve selected session, user/
    assert.equal(approvalCount,2);
   });
  }catch(error){throw Object.assign(error as Error,{nativeDiagnostic:stderr});}
- finally{await admin.close();child.stdin.end();child.kill('SIGKILL');await new Promise<void>(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',()=>resolve());});if(!unknown){const writable=async(path:string)=>{await chmod(path,0o700);for(const entry of await readdir(path,{withFileTypes:true}))if(entry.isDirectory())await writable(join(path,entry.name));};await writable(dir);await rm(dir,{recursive:true,force:true});}}
+ finally{await admin.close();await replacementAdmin?.close();child.stdin.end();child.kill('SIGKILL');await new Promise<void>(resolve=>{if(child.exitCode!==null)resolve();else child.once('exit',()=>resolve());});if(!unknown){const writable=async(path:string)=>{await chmod(path,0o700);for(const entry of await readdir(path,{withFileTypes:true}))if(entry.isDirectory())await writable(join(path,entry.name));};await writable(dir);await rm(dir,{recursive:true,force:true});}}
 });

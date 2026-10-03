@@ -294,3 +294,13 @@ The installed check verifies the saved body, reloaded native plan, zero model
 calls and approved user/agent tools. This synthetic bundle is a test fixture,
 not a production package or account acceptance. Without this flag the same
 fixture deliberately retains local paths and tests the native export refusal.
+
+`AMPLIFIER_TEST_RESULT_RECOVERY_GAP=1` adds a causal gap witness with a fresh
+portable fixture: complete one save/activation, discard its delivered body,
+replace the bridge and administration process, and inspect public native methods.
+The current peer has no `bundle.receipt` route, the original outer ID was not
+forwarded, and a cold topic contains current catalog state without the original
+saved/activation result. The saved bytes remain unchanged and no mutation is
+resent. A passing gap witness proves the limitation, not receipt recovery.
+Native-owned exact save/activation receipts require a separately negotiated
+contract and a future positive lost-reply/restart fixture.
