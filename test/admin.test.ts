@@ -147,3 +147,35 @@ test('older admin peers are refused before service-stop acquisition is dispatche
  const admin=new AdminConnection({command:process.execPath,args:['-e',script,audit],cwd:dir,resolveWorkspace:()=>dir});
  try{const serviceIdentity={installationId:'install',dataScope:'scope',ownerId:'platform',instanceId:'instance',releaseDigest:'digest'};assert.equal(await admin.quiescenceParticipant.acquire({fenceId:'fence',commandId:'stop',purpose:'service-stop',instanceId:'instance',dataScope:'scope',serviceIdentity}),null);await assert.rejects(stat(audit));}finally{await admin.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('cold cache pages are passive under held intake; clear uses the exact trusted maintenance scope',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const {execFileSync}=await import('node:child_process');const {readFile,realpath}=await import('node:fs/promises');
+ const dir=await realpath(await mkdtemp(join(tmpdir(),'admin-cache-'))),workspace=join(dir,'workspace'),home=join(dir,'home'),app=join(dir,'app'),root=join(app,'foundation/cache/fixture');await mkdir(workspace);await mkdir(home);await mkdir(root,{recursive:true});
+ execFileSync(process.env.AMPLIFIER_ACP_PYTHON!,['-c',`import json,py_compile,subprocess,sys\nfrom pathlib import Path\np=Path(sys.argv[1]);source=p/'sample.py';source.write_text('VALUE = 7\\n')\ndef git(*args):return subprocess.check_output(['git',*args],cwd=p,stderr=subprocess.DEVNULL,text=True).strip()\ngit('init','-b','main');git('config','user.name','Fixture');git('config','user.email','fixture@example.invalid');git('add','sample.py');git('commit','-m','fixture')\nhead=git('rev-parse','HEAD');git('remote','add','origin','https://example.invalid/source');git('update-ref','refs/remotes/origin/main',head);git('branch','--set-upstream-to','origin/main','main')\n(p/'.amplifier_cache_meta.json').write_text(json.dumps({'git_url':'https://example.invalid/source','ref':'main','commit':head}))\npy_compile.compile(str(source),doraise=True)`,root]);
+ const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:app,adminWorkspaceRoots:[workspace],adminMaintenance:true,maintenanceExternalWriters:'stopped',workerCommand:['/impossible/cache-worker']}));
+ const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace,env:{AMPLIFIER_SOURCE_STORE:join(dir,'source-store'),AMPLIFIER_SESSION_STATE_HOME:join(dir,'writer-state')}};
+ const admin=new AdminConnection(options),context={fenceId:'cache-held',commandId:'cache-job',purpose:'recovery' as const,instanceId:'host',dataScope:'owned'};
+ let exact:any;
+ try{
+  const metadata=await admin.maintenanceCapabilities();assert.equal(metadata?.cacheInventory.sourceRetirement,false);metadata!.cacheInventory.version=99;assert.equal((await admin.maintenanceCapabilities())?.cacheInventory.version,1);
+  const scan=await admin.perform('maintenance.cache.scan',{commandId:'scan'}, {clientId:'browser'});
+  const page=await admin.perform('maintenance.cache.page',{scanId:scan.scanId,revision:scan.revision},{clientId:'browser'});const derived=page.items.find((r:any)=>r.clearable);assert.ok(derived);
+  const review=await admin.perform('maintenance.cache.preview',{scanId:scan.scanId,revision:scan.revision,ids:[derived.id],reviewed:true},{clientId:'browser'});
+  const lease=await admin.quiescenceParticipant.acquire(context);assert.ok(lease);
+  assert.equal((await admin.perform('maintenance.cache.page',{scanId:scan.scanId,revision:scan.revision,limit:1},{clientId:'browser'})).items.length,1);
+  await assert.rejects(admin.perform('maintenance.cache.clear',{commandId:'untrusted',previewHash:review.previewHash},{clientId:'browser'}),/intake is held/);
+  exact=await admin.withMaintenanceFence(context,()=>admin.perform('maintenance.cache.clear',{commandId:'clear',previewHash:review.previewHash},{clientId:'trusted'}));assert.equal(exact.receipt.state,'succeeded');assert.deepEqual(exact.removedIds,[derived.id]);
+  const receipt=await admin.perform('maintenance.receipt',{commandId:'clear'},{clientId:'browser'});assert.deepEqual(receipt.receipt,exact.receipt);
+  assert.equal(await readFile(join(root,'sample.py'),'utf8'),'VALUE = 7\n');await assert.rejects(stat(join(home,'projects')));
+  await lease.release('unchanged',{kind:'admission-refused'});
+ }finally{await admin.close();}
+ const replacement=new AdminConnection(options);
+ try{assert.deepEqual((await replacement.perform('maintenance.receipt',{commandId:'clear'},{clientId:'browser'})).receipt,exact.receipt);}finally{await replacement.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('unadvertised cache methods refuse before private RPC dispatch',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'admin-cache-unavailable-')),audit=join(dir,'effects');
+ const script=`const readline=require('node:readline'),fs=require('node:fs');readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.method==='initialize')process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{protocolVersion:1,agentCapabilities:{_meta:{'amplifier.dev/native':{version:1,admin:{version:1,maintenance:{version:1}}}}}}})+'\\n');else fs.appendFileSync(process.argv[1],m.method+'\\n');});`;
+ const admin=new AdminConnection({command:process.execPath,args:['-e',script,audit],cwd:dir,resolveWorkspace:()=>dir});
+ try{for(const operation of ['scan','page','preview','clear'])await assert.rejects(admin.perform('maintenance.cache.'+operation,{commandId:'absent'},{clientId:'browser'}),(error:any)=>error.data?.executed===false&&error.data.reason==='native-cache-unavailable');await assert.rejects(stat(audit));}finally{await admin.close();await rm(dir,{recursive:true,force:true});}
+});

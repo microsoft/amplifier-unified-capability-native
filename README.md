@@ -213,3 +213,13 @@ no cross-session authority.
 `maintenance.artifact.inspect` is a passive held-gate read for independently
 verified full-native immutable archive attestations. It is available through the
 existing trusted `perform` port and never grants archive creation/restore rights.
+
+`AdminConnection` forwards the negotiated native `maintenance.cache.scan`,
+`page`, `preview`, and `clear` methods. An absent `cacheInventory.version: 1`
+marker produces a typed pre-dispatch `executed: false` refusal. Indexed page and
+exact receipt reads remain available under a held admin intake. A clear request
+requires the caller's trusted `withMaintenanceFence` recovery scope; ordinary
+browser calls cannot acquire that authority. Native v1 only clears reviewed,
+exactly reconstructible bytecode and never retires source directories. Product
+owners must enqueue the work, hold their own intakes, retain the exact command,
+and inspect an uncertain receipt without replaying the effect.
