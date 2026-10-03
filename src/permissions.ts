@@ -2,6 +2,8 @@
 import type {Context,Json,RecordValue} from './index.js';
 export interface PermissionsOptions {
  nativeAdmin:(operation:string,args:Json,context:Context)=>Promise<Json>;
+ /** Trusted public host authorization; never resolves a client-provided filesystem path. */
+ inspectSession?:(session:string)=>Promise<{uri:string;workingDirectory:string;[key:string]:any}>;
  onInvalidate?:(topic:'permissions',scope:string)=>void;
 }
 const sessionId={type:'string',minLength:1,maxLength:8192};
@@ -46,7 +48,16 @@ export class PermissionsCapabilities {
  action=async(request:Json,context:Context)=>{
   const scope=this.scope(request.channel),operation=request.operation,args=request.args??{};
   if(request.version!==1||request.topic!=='permissions'||typeof request.commandId!=='string'||!request.commandId||request.commandId.length>200)throw refused('Bounded permission action identity and version required');
-  this.validate(operation,args,scope,context);
+  let selected=scope;
+  if(scope==='host'&&args.sessionId!==undefined){
+   if(context.origin==='agent')throw refused('An agent may only inspect or change its current session workspace');
+   if(typeof args.sessionId!=='string'||!/^ahp-session:\/[A-Za-z0-9_-]{1,200}$/.test(args.sessionId)||!this.options.inspectSession)throw refused('Selected session requires trusted host authorization');
+   if(!fieldSets[operation]||!args||typeof args!=='object'||Array.isArray(args)||Object.keys(args).some(k=>!fieldSets[operation].includes(k)))throw refused('Unexpected file-access field');
+   const authorized=await this.options.inspectSession(args.sessionId);
+   if(authorized?.uri!==args.sessionId||typeof authorized.workingDirectory!=='string'||!authorized.workingDirectory)throw refused('Authorized session identity differs from selected session');
+   selected=authorized.uri;context={...context,session:{uri:authorized.uri,workingDirectory:authorized.workingDirectory}};
+  }
+  this.validate(operation,args,selected,context);
   const {sessionId:_selector,...values}=args;
   const result=await this.options.nativeAdmin(operation,operation==='permissions.save'?{...values,commandId:request.commandId}:values,context);
   if(operation==='permissions.save'&&result.status==='succeeded')this.options.onInvalidate?.('permissions','host');

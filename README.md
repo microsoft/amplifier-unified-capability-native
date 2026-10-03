@@ -202,3 +202,10 @@ does not mount a worker or scan archive inventories. Full-native/restore callers
 must inspect the negotiated nested `archivePlans.fullNative` fields. Restore
 preview/apply/reconcile use the exact held recovery maintenance fence;
 restore.manifest/restore.inspect are explicitly passive under held intake.
+
+Host-scoped UI permission actions carrying `args.sessionId` require the trusted
+`inspectSession: uri => host.inspectSession(uri)` factory callback. The provider
+checks the returned identity and binds the authorized workspace before native
+dispatch. Missing or foreign selectors never fall back to a default workspace.
+Agents still use their own authenticated session channel; a root selector grants
+no cross-session authority.
