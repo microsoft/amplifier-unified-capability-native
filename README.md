@@ -260,7 +260,11 @@ errors produce `activation:{state:'unknown',reason:'activation-outcome-unknown'}
 and phase `unknown`; this path dispatches no automatic retry or provider refresh.
 Only a confirmed activation publishes the replacement plan. Clients must inspect
 unknown activation before explicitly choosing another effect. This package's
-cache is not a durable receipt store; the host retains the exact action result.
+cache is not a durable receipt store. This preserves the delivered action response;
+exact recovery of the original saved/activation body after a lost outer reply or
+process restart is unqualified. Host command status/detail does not retain that
+body. Inspecting current settings or mounted state does not prove the original
+command's outcome and never authorizes replay.
 
 For an independent package consumer, set `AMPLIFIER_NATIVE_CAPABILITY_MODULE`
 to the installed package's absolute `dist/index.js` path when running the tests.

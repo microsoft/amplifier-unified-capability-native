@@ -37,9 +37,12 @@ to the sealed implementation source; they are checks, not universal parity claim
 
 ## Consumer obligations already required by this boundary
 
-Hosts authorize channels and workspaces before calling these ports, persist the
-original command identity/result, and distinguish a completed save from its
-activation outcome. A topic cache is not a durable receipt store. Consumers keep
+Hosts authorize channels and workspaces before calling these ports, retain the
+original command identity, and distinguish a delivered completed-save response
+from its activation outcome. Exact original result recovery remains a desired
+CS4/HP6 obligation, not qualified behavior: the current host retains command
+status/detail, not the saved/activation body. A topic cache is not a durable
+receipt store. Consumers keep
 native configuration revisions opaque and require explicit stale-draft review.
 
 Composition binds every administration callback to the same genuine connection
@@ -65,7 +68,7 @@ retained independently. Hosted Node 22/24 fixture success is distinct from actua
 native, browser, account and deployed acceptance.
 
 F04/F06–F10/F23/F25 retain their original desired behavior. Browser editors,
-receipt recovery UI, remote source discovery, nonempty skills/agents, supported
+lost outer-reply/result recovery and its UI, remote source discovery, nonempty skills/agents, supported
 mode-set variants, all module/provider combinations, Linux installed-native,
 real accounts/devices and live adoption are not established by this packet.
 General global-agent administration policy remains a cross-owner question;
