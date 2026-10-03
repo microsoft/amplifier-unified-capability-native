@@ -126,3 +126,10 @@ that previously busy post-response work has settled. This uses the private
 does not grant maintenance authority; always acquire the held participant again.
 
 The exact passive `voice.configuration` operation remains available on this held administration connection. Its credential/configure counterparts receive no such access. Disabled launcher credentials project explicit unavailability; passive media status must not request a credential.
+
+Native maintenance archive-plan requests (`maintenance.archive.create/add/prepare`)
+are admitted only through the exact trusted maintenance-fence callback, like snapshot
+and reset. `maintenance.archive.manifest` is an explicitly classified passive read
+and remains usable under a held admin fence. The adapter never maps these private
+operations directly into arbitrary client actions or accepts client-supplied native
+paths. Public selected-archive review is supplied by the independent recovery owner.

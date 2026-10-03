@@ -6,7 +6,7 @@ test('upstream ACP SDK administration reaches native settings without creating a
 });
 
 test('native held administration includes cross-process gate and exact recovery maintenance exception',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
- const dir=await mkdtemp(join(tmpdir(),'amplifier-admin-held-')),workspace=join(dir,'workspace'),home=join(dir,'home');await mkdir(workspace);await mkdir(home);await writeFile(join(home,'settings.yaml'),'fixture: unchanged\n');const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],adminMaintenance:true,workerCommand:['/impossible/admin-worker']}));
+ const dir=await mkdtemp(join(tmpdir(),'amplifier-admin-held-')),workspace=join(dir,'workspace'),home=join(dir,'home');await mkdir(workspace);await mkdir(home);await writeFile(join(home,'settings.yaml'),'fixture: unchanged\n');const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],adminMaintenance:true,maintenanceExternalWriters:'stopped',workerCommand:['/impossible/admin-worker']}));
  const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace};
  const admin=new AdminConnection(options),other=new AdminConnection(options),context={fenceId:'root-fence',commandId:'recovery-job',purpose:'recovery' as const,instanceId:'same-host',dataScope:'owned'};
  try{
@@ -14,13 +14,18 @@ test('native held administration includes cross-process gate and exact recovery 
   await assert.rejects(admin.perform('modules.save',{module:'tool-never',section:'tools',config:{}},{clientId:'browser'}),/intake is held/);
   assert.equal(await other.quiescenceParticipant.acquire({...context,commandId:'other'}),null);
   await assert.rejects(admin.perform('maintenance.preview',{sessions:[],parts:['native-settings'],privateContentReviewed:true},{clientId:'browser'}),/intake is held/);
+  let archiveHash='';
   await admin.withMaintenanceFence(context,async()=>{
    await assert.rejects(admin.perform('modules.save',{module:'tool-never',section:'tools',config:{}},{clientId:'trusted'}),/intake is held/);
    const preview=await admin.perform('maintenance.preview',{sessions:[],parts:['native-settings'],privateContentReviewed:true},{clientId:'trusted'});
    const lease=await admin.perform('maintenance.acquire',{commandId:'native-acquire',previewHash:preview.previewHash},{clientId:'trusted'});assert.equal(lease.active,true);assert.equal((await admin.perform('voice.configuration',{},{clientId:'browser'})).configurable,false);await assert.rejects(admin.perform('voice.configure',{source:'private',apiKey:'must-not-write'},{clientId:'browser'}),/intake is held/);
    const snapshot=await admin.perform('maintenance.snapshot',{commandId:'native-snapshot',leaseId:lease.leaseId,previewHash:preview.previewHash},{clientId:'trusted'});assert.equal(snapshot.receipt.state,'succeeded');
    await admin.perform('maintenance.release',{leaseId:lease.leaseId},{clientId:'trusted'});
+   const plan=await admin.perform('maintenance.archive.create',{commandId:'archive-plan',parts:['shared-configuration'],privateContentReviewed:true},{clientId:'trusted'});
+   const sealed=await admin.perform('maintenance.archive.prepare',{commandId:'archive-seal',planId:plan.planId,expectedRevision:0},{clientId:'trusted'});archiveHash=sealed.previewHash;
   });
+  const manifest=await admin.perform('maintenance.archive.manifest',{previewHash:archiveHash,limit:2},{clientId:'browser'});assert.equal(manifest.items.length,2);
+  await assert.rejects(admin.perform('maintenance.archive.create',{commandId:'forbidden-plan',parts:['shared-configuration'],privateContentReviewed:true},{clientId:'browser'}),/intake is held/);
   const proof={verified:true as const,...context,outcome:'unchanged' as const,receiptId:'trusted-owner-receipt'};await held.release('unchanged',proof);
   assert.equal((await admin.inspectLifecycle()).intakeClosed,false);
   const after=await admin.perform('modules.save',{module:'tool-fixture',section:'tools',config:{}},{clientId:'browser'});assert.ok(after.modules.length);
