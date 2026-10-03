@@ -101,3 +101,16 @@ real accounts/devices and live adoption are not established by this packet.
 General global-agent administration policy remains a cross-owner question;
 permission saves already restrict agents to their authorized session workspace.
 No new policy or retirement decision is inferred from that gap.
+
+
+## Mode projection consistency
+
+After a completed `mode.set` or `mode.clear`, the selected runtime's cached
+`mode.list` must reflect the complete native list response, preserving catalog
+order and public fields. The mutation response and original command metadata
+remain unchanged. If a peer supplies only a partial mutation response, the
+bridge reads that selected runtime's public `mode.list` once; an unavailable or
+incomplete read replaces stale mode truth with an explicit unavailable
+projection. It never retries the completed mutation. Provider regression checks
+cover load/set/clear for UI and agent origins and partial-response read failure;
+actual mode-hook/browser acceptance belongs to the assembled consumer.

@@ -190,3 +190,27 @@ test('passive admin metadata failure remains unavailable without poisoning unrel
  const bundles=await provider.read(request('bundles'));assert.deepEqual(bundles.data,{nativeAdministration:{state:'unavailable',reason:'native-admin-negotiation-unavailable'}});assert.equal(bundles.data.bundles,undefined);assert.equal(metadataCalls,1);
  const restored=createNativeCapabilities({nativeAdmin:async()=>({}),nativeControl:async()=>({}),nativeBundleCommands:async()=>bundleMetadata,nativeBundleReceipt:async()=>({receipt:null})});assert.equal(await restored.negotiateBundleCommands(),true);assert.equal(restored.bundleCommandAvailability().state,'ready');assert.ok(restored.manifest.actions['bundle.receipt']);
 });
+
+
+test('mode mutations replace the loaded list with complete native truth and preserve receipts and catalog order',async()=>{
+ const modes=[{name:'zeta',description:'Last',source:'bundle',extra:7},{name:'alpha',description:'First',source:'workspace'}],calls:string[]=[];
+ const values:any={'mode.list':{available:true,active:null,modes,catalogRevision:1},'mode.set':{available:true,active:'zeta',modes,catalogRevision:2},'mode.clear':{available:true,active:null,modes,catalogRevision:3}};
+ const provider=createNativeCapabilities({nativeControl:async(scope:string,op:string)=>{assert.equal(scope,session);calls.push(op);return op==='capabilities'?{controls:Object.keys(values)}:structuredClone(values[op]);}});
+ const run=(op:string,origin:'ui'|'agent',id:string)=>provider.action({...action('runtime-control','runtime.control',{operation:op,args:op==='mode.set'?{name:'zeta'}:{}}),commandId:id},{...context,origin});
+ await run('mode.list','ui','load-modes');
+ for(const [op,origin,id] of [['mode.set','ui','set-mode'],['mode.clear','agent','clear-mode']] as const){
+  const result=await run(op,origin,id),projection=result.updates.find((u:any)=>u.topic==='runtime-control')!.data.runtimeControl[session];
+  assert.deepEqual(result.result,values[op]);assert.deepEqual(projection['mode.list'],values[op]);assert.deepEqual(projection[op],values[op]);assert.equal(result._meta['amplifier.dev/operation'].id,id);
+  assert.deepEqual((await provider.read(request('runtime-control'))).data.runtimeControl[session]['mode.list'],values[op]);
+ }
+ assert.deepEqual(calls,['capabilities','mode.list','capabilities','mode.set','capabilities','mode.clear']);
+});
+
+test('partial mode mutation refreshes only selected list and failed refresh never repeats a completed effect',async()=>{
+ let active:any=null,fail=false;const calls:string[]=[],partial={active:'focus',checkpoint:'saved'},modes=[{name:'focus',description:'Focus',source:'bundle'}];
+ const provider=createNativeCapabilities({nativeControl:async(scope:string,op:string)=>{assert.equal(scope,session);calls.push(op);if(op==='capabilities')return {controls:['mode.list','mode.set','mode.clear']};if(op==='mode.list'){if(fail)throw Error('Read unavailable');return {available:true,active,modes};}if(op==='mode.set'){active='focus';return partial;}active=null;return {active:null,checkpoint:'cleared'};}});
+ const run=(op:string)=>provider.action(action('runtime-control','runtime.control',{operation:op}),context);
+ await run('mode.list');const set=await run('mode.set');assert.deepEqual(set.result,partial);assert.deepEqual(set.updates[0].data.runtimeControl[session]['mode.list'],{available:true,active:'focus',modes});
+ fail=true;const clear=await run('mode.clear');assert.deepEqual(clear.result,{active:null,checkpoint:'cleared'});assert.deepEqual(clear.updates[0].data.runtimeControl[session]['mode.list'],{available:false,reason:'refresh-unavailable'});assert.equal(clear.accepted,true);assert.equal(clear._meta['amplifier.dev/operation'].id,'command-1');
+ assert.equal(calls.filter(op=>op==='mode.set').length,1);assert.equal(calls.filter(op=>op==='mode.clear').length,1);assert.equal(calls.filter(op=>op==='mode.list').length,3);
+});
