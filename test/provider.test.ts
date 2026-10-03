@@ -20,6 +20,7 @@ test('configuration apply retains native CAS and classifies only explicit confli
   calls.push([op,args]);
   if(op==='capabilities')return {controls:['configuration.apply','configuration.inspect']};
   if(op==='configuration.inspect')return {configurationRevision:current,plan:{}};
+  if(op==='configuration.providers')return {selection:{model:'fresh'}};
   if(args.expectedConfigurationRevision===old)throw Object.assign(new Error('Review the newer mount plan'),{data:{reason:'configuration-conflict',executed:false,configurationRevision:current}});
   if(args.config.transport)throw Object.assign(new Error('Transport ended'),{data:{outcome:'unknown'}});
   return {remounted:true,configuration:{configurationRevision:current,plan:args.config}};
@@ -32,6 +33,7 @@ test('configuration apply retains native CAS and classifies only explicit confli
  const applied=await provider.action(action('configuration','configuration.apply',{config:{value:1},expectedConfigurationRevision:current}),context);
  assert.equal(applied.accepted,true);assert.equal(applied.updates.find(u=>u.topic==='configuration')!.data.configuration.configurationRevision,current);
  assert.equal(calls.find(([op,args])=>op==='configuration.apply'&&args.config.value===1)[1].expectedConfigurationRevision,current);
+ assert.equal(calls.find(([op,args])=>op==='configuration.apply'&&args.config.value===1)[1].commandId,'command-1');
  await assert.rejects(provider.action(action('configuration','configuration.apply',{config:{transport:true},expectedConfigurationRevision:current}),context),/Transport ended/);
 });
 
@@ -47,4 +49,23 @@ test('fresh configuration plan and CAS revision supersede prior bundle overlay',
  const record=inspected.updates.find(u=>u.topic==='configuration')!.data.configuration;
  assert.equal(record.configurationRevision,current);assert.equal(record.plan.name,'current');
  assert.equal(record.bundlePreview,undefined);
+});
+
+
+test('effective provider is refreshed only for selected confirmed mutations and lost read never claims old truth',async()=>{
+ const calls:any[]=[];let model='first',fail=false;
+ const provider=createNativeCapabilities({nativeControl:async(scope,op,args)=>{
+  calls.push([scope,op,args]);
+  if(op==='capabilities')return {controls:['provider.select','provider.reset','configuration.providers']};
+  if(op==='provider.select'){model=args.model;return {selection:{model}};}
+  if(op==='provider.reset'){model='default';return {selection:null};}
+  if(op==='configuration.providers'){if(fail)throw Error('Lost read');return {selection:{model}};}
+  return {};
+ }});
+ const selected=await provider.action(action('runtime-control','runtime.control',{operation:'provider.select',args:{model:'second'}}),context);
+ assert.equal(selected.updates[0].data.runtimeControl[session]['configuration.providers'].selection.model,'second');
+ fail=true;
+ const reset=await provider.action(action('runtime-control','runtime.control',{operation:'provider.reset'}),context);
+ assert.equal(reset.accepted,true);assert.deepEqual(reset.updates[0].data.runtimeControl[session]['configuration.providers'],{available:false,reason:'refresh-unavailable'});
+ assert.ok(calls.every(row=>row[0]===session));
 });

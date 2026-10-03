@@ -94,6 +94,7 @@ export class NativeCapabilities {
    if(request.operation==='runtime.control'||['configuration.inspect','configuration.apply','configuration.toggle','configuration.cancel','bundle.preview','bundle.switch'].includes(op)){
     const caps=await this.native(scope,'capabilities');if(![...(caps.controls??[]),'capabilities',...(caps.workerOperations??[]),'steer'].includes(op))throw Error(`The connected agent does not support ${op}.`);
     if(op==='configuration.apply'&&!/^[a-f0-9]{64}$/.test(arguments_.expectedConfigurationRevision??''))return {accepted:false,updates:[],invalidate:[],result:{applied:false,executed:false,reason:'configuration-revision-required',message:'Inspect and review the current mount plan before applying a configuration draft.'},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+    if(op==='configuration.apply')arguments_={...arguments_,commandId:request.commandId};
     try{result=await this.native(scope,op,arguments_);}catch(error){
      const data=(error as {data?:Json}).data;
      if(op==='configuration.apply'&&data?.reason==='configuration-conflict'&&data.executed===false){
@@ -103,6 +104,12 @@ export class NativeCapabilities {
      throw error;
     }
     s.results[op]=result;
+    if(['provider.select','provider.reset','configuration.apply','bundle.switch'].includes(op)&&!result.cancelled&&!result.requiresModelChoice){
+     // Refresh only this selected runtime after its confirmed mutation. A failed
+     // read cannot make the completed mutation unknown or leave stale truth.
+     delete s.results['configuration.providers'];
+     try{s.results['configuration.providers']=await this.native(scope,'configuration.providers');}catch{s.results['configuration.providers']={available:false,reason:'refresh-unavailable'};}
+    }
     if(op.startsWith('goals.'))s.results['goals.get']=result;if(op==='budget.set')s.results['budget.get']=result;if(op.startsWith('task.'))s.results['task.get']=result;if(op.startsWith('capacity.'))s.results['capacity.get']=result;
     if(op==='configuration.providers')s.overlays['provider-catalog']={...(s.overlays['provider-catalog']??{})};
     if(op==='configuration.providerModels'){const id=String(result.provider);s.results.modelCatalogs={...(s.results.modelCatalogs??{}),[id]:{...result,phase:'ready'}};}
@@ -128,7 +135,7 @@ export class NativeCapabilities {
      while(Object.keys(overlay.operations).length>64)delete overlay.operations[Object.keys(overlay.operations)[0]];
      Object.assign(overlay,result);s.overlays[topic]=overlay;
     }
-    if(op==='bundle.save'&&scope!=='host'&&result.saved?.name){const activated=await this.native(scope,'bundle.switch',{bundle:result.saved.name});if(activated.requiresModelChoice)throw Error('Bundle was saved, but activation needs an explicit model choice.');result={...result,activation:activated};s.overlays.configuration={...(s.overlays.configuration??{}),...activated.configuration,bundle:activated.bundle,bundleChange:{phase:'ready',action:op}};}
+    if(op==='bundle.save'&&scope!=='host'&&result.saved?.name){const activated=await this.native(scope,'bundle.switch',{bundle:result.saved.name});if(activated.requiresModelChoice)throw Error('Bundle was saved, but activation needs an explicit model choice.');result={...result,activation:activated};s.overlays.configuration={...(s.overlays.configuration??{}),...activated.configuration,bundle:activated.bundle,bundleChange:{phase:'ready',action:op}};delete s.results['configuration.providers'];try{s.results['configuration.providers']=await this.native(scope,'configuration.providers');}catch{s.results['configuration.providers']={available:false,reason:'refresh-unavailable'};}}
     if(topic==='configuration')s.overlays.configuration={...(s.overlays.configuration??{}),registry:{...(s.overlays.configuration?.registry??{}),...result}};
     if(topic==='bundles')s.overlays.bundles={...(s.overlays.bundles??{}),...Object.fromEntries(['bundles','registeredBundles','bundleDefaults'].filter(k=>k in result).map(k=>[k,result[k]])),...(result.discovery?{bundleDiscovery:result.discovery}:{})};
    }

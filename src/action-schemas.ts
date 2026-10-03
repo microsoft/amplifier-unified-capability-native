@@ -814,11 +814,11 @@ export const ACTION_SCHEMAS:Record<string,{description:string;schema:Record<stri
     }
   },
   "configuration.cancel": {
-    "description": "Cancel queued mount-plan changes",
+    "description": "Cancel the exact queued mount-plan change returned by configuration.inspect",
     "schema": {
       "type": "object",
-      "properties": {},
-      "required": [],
+      "properties": {"pendingCommandId":{"type":"string","minLength":1,"maxLength":256}},
+      "required": ["pendingCommandId"],
       "additionalProperties": false
     }
   },
