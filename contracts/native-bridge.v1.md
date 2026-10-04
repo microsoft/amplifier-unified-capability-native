@@ -73,6 +73,14 @@ advertisement is stable for an instance; explicit reconstruction after the peer
 is restored renegotiates passive metadata without retrying effects. The native
 receipt store, held intake and unresolved outcomes retain their authority.
 
+Native bundle v1 refused or unknown receipts may include optional
+`diagnosticReceipt`, exactly a 44-character `startup-` plus 32 lowercase hex
+digits plus `.log` private worker-log basename. The bridge preserves this native
+pointer without reading that file, exposing an absolute path or changing the
+original outcome. Succeeded receipts forbid the field. Unknown still forbids
+completion, execution proof, reason and result fields; existing stored receipts
+remain unchanged. Native owns creation and filtering of the diagnostic pointer.
+
 ## Qualification and open gaps
 
 `npm test` and `npm run check` cover the local owner. Set `AMPLIFIER_ACP_PYTHON` for
