@@ -467,12 +467,14 @@ export const ACTION_SCHEMAS:Record<string,{description:string;schema:Record<stri
           "type": "string",
           "maxLength": 200
         },
+        "sessionId": {"type":"string","minLength":1,"maxLength":8192},
         "scope": {"type":"string","enum":["global","project","local"]},
         "loginId": {"type":"string","pattern":"^[a-f0-9]{32}$"}
       },
       "required": [
         "id"
       ],
+      "dependentRequired":{"sessionId":["scope","loginId"]},
       "additionalProperties": false
     }
   },
@@ -485,12 +487,14 @@ export const ACTION_SCHEMAS:Record<string,{description:string;schema:Record<stri
           "type": "string",
           "maxLength": 200
         },
+        "sessionId": {"type":"string","minLength":1,"maxLength":8192},
         "scope": {"type":"string","enum":["global","project","local"]},
         "loginId": {"type":"string","pattern":"^[a-f0-9]{32}$"}
       },
       "required": [
         "id"
       ],
+      "dependentRequired":{"sessionId":["scope","loginId"]},
       "additionalProperties": false
     }
   },

@@ -386,3 +386,5 @@ saved/activation result. The saved bytes remain unchanged and no mutation is
 resent. A passing gap witness proves the limitation, not receipt recovery.
 The separate negotiated successor and positive fixture above supply exact native
 child receipts; they do not make legacy calls retrospectively recoverable.
+
+Scoped standalone provider sign-in is discoverable through the existing `provider-catalog` record at `data.setup.providerSignIn`: the closed descriptor is `{version:1,available:boolean,route:"administration",provider:"provider-openai-chatgpt",selectors:["sessionId","scope","loginId"]}` when supported and `selectors:[]` when unavailable. It is derived from the initialized administration peer and overwrites native/result overlays. Status and cancel must retain the original provider, original AHP channel (`ahp-root://` for host), returned scope and loginId privately; current selection cannot substitute. Supplying sessionId requires scope and loginId, must match the authenticated original channel, and is stripped before administration dispatch. Old peers omit these schema fields and refuse their presence; resident provider routes refuse them.

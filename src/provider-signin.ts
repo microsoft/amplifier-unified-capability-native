@@ -7,10 +7,10 @@ export function providerSignInMetadata(value:unknown):value is Json {
  return Object.keys(m).length===3&&Object.keys(m).every(k=>['version','workspaceBound','scopedAttempts'].includes(k))&&m.version===1&&m.workspaceBound===true&&m.scopedAttempts===true;
 }
 export function signInSelectors(operation:string,args:Json):boolean {
- return ['providers.loginStatus','providers.loginCancel'].includes(operation)&&(Object.hasOwn(args,'scope')||Object.hasOwn(args,'loginId'));
+ return ['providers.loginStatus','providers.loginCancel'].includes(operation)&&(Object.hasOwn(args,'sessionId')||Object.hasOwn(args,'scope')||Object.hasOwn(args,'loginId'));
 }
 export function validSignInSelectors(args:Json):boolean {
- return (!Object.hasOwn(args,'scope')||['global','project','local'].includes(args.scope))&&(!Object.hasOwn(args,'loginId')||typeof args.loginId==='string'&&/^[a-f0-9]{32}$/.test(args.loginId));
+ return (!Object.hasOwn(args,'sessionId')||(typeof args.sessionId==='string'&&args.sessionId.length>0&&args.sessionId.length<=8192&&Object.hasOwn(args,'scope')&&Object.hasOwn(args,'loginId')))&&(!Object.hasOwn(args,'scope')||['global','project','local'].includes(args.scope))&&(!Object.hasOwn(args,'loginId')||typeof args.loginId==='string'&&/^[a-f0-9]{32}$/.test(args.loginId));
 }
 export function signInSelectorsUnavailable(message='The configured native administration peer does not support scoped sign-in selectors.') {
  return Object.assign(Error(message),{data:{executed:false,replayed:false,reason:'provider-signin-selectors-unavailable'}});

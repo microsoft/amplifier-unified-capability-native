@@ -41,7 +41,7 @@ test('actual negotiated native fixture keeps user and agent controls on the orig
    const loginId=status.result.login.loginId;assert.equal(status.result.login.status,'waiting');assert.equal(status.result.login.url,'https://auth.openai.com/codex/device');
    const other=await call('providers.loginCancel',{id:'same-id',scope:'local'},contextB);assert.equal(other.result.login.status,'idle');
    assert.equal((await call('providers.loginStatus',{id:'same-id',scope:'local',loginId})).result.login.status,'waiting');
-   const cancelled=await call('providers.loginCancel',{id:'same-id',scope:'local',loginId});assert.equal(cancelled.result.login.status,'cancelled');
+   const cancelled=await call('providers.loginCancel',{id:'same-id',sessionId:contextA.session.uri,scope:'local',loginId});assert.equal(cancelled.result.login.status,'cancelled');
    assert.equal(cancelled.result.login.loginId,loginId);assert.equal(await readFile(f.original,'utf8'),'{}');
   }finally{await admin.close();}
  }

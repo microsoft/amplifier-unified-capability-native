@@ -47,7 +47,7 @@ export class NativeCapabilities {
  private bundleNegotiation?:Promise<boolean>;private bundleCommands=false;
  private contextNegotiation?:Promise<boolean>;private contextClear=false;
  private signInNegotiation?:Promise<boolean>;private scopedSignIn=false;
- providerSignInAvailability=()=>({state:this.scopedSignIn?'ready':'unsupported',route:'administration',provider:'provider-openai-chatgpt'});
+ providerSignInAvailability=()=>({version:1,available:this.scopedSignIn,route:'administration',provider:'provider-openai-chatgpt',selectors:this.scopedSignIn?['sessionId','scope','loginId']:[]});
  negotiateProviderSignIn=async():Promise<boolean>=>{
   if(!this.options.nativeProviderSignIn||!this.options.nativeAdmin)return false;
   if(!this.signInNegotiation)this.signInNegotiation=(async()=>{
@@ -101,7 +101,7 @@ export class NativeCapabilities {
   })();
   return this.bundleNegotiation;
  };
- actionSchemas=async()=>{await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;}return [name,advertised];}));};
+ actionSchemas=async()=>{await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.sessionId;delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;delete advertised.schema.dependentRequired;}return [name,advertised];}));};
  private now(){return(this.options.clock??Date.now)();}
  private state(scope:string){
   let value=this.scopes.get(scope);if(!value){
@@ -117,17 +117,17 @@ export class NativeCapabilities {
  private async native(scope:string,operation:string,args:Json={}) {if(scope==='host')throw Error('Select an Amplifier session for runtime controls.');return this.options.nativeControl(scope,operation,args);}
  private runtime(scope:string,s:ScopeState,result?:Json){return {runtimeControl:{[scope]:{...s.results,...result}}};}
  private async load(topic:Topic,scope:string,context:Context,s:ScopeState):Promise<Json>{
-  await this.negotiateBundleCommands();
-  if(this.bundleAvailability.state==='unavailable'&&(topic==='bundles'||topic==='provider-catalog'||topic==='configuration'&&scope==='host'))return {nativeAdministration:copy(this.bundleAvailability)};
+  await this.negotiateBundleCommands();await this.negotiateProviderSignIn();
+  if(this.bundleAvailability.state==='unavailable'&&(topic==='bundles'||topic==='provider-catalog'||topic==='configuration'&&scope==='host'))return {nativeAdministration:copy(this.bundleAvailability),...(topic==='provider-catalog'?{setup:{providerSignIn:{...this.providerSignInAvailability(),available:false,selectors:[]}}}:{})};
   if(topic==='configuration'){
    if(scope!=='host'){const value=await this.native(scope,'configuration.inspect');const {registry,...overlay}=s.overlays.configuration??{};return {configuration:{sessionId:scope,...overlay,...value},configurationRevision:s.version,...(registry?{registry}:{})};}
    if(!this.options.nativeAdmin)throw Error('This host has no native administration capability.');
    return {registry:{...await this.options.nativeAdmin('modules.list',{},context),...(s.overlays.configuration?.registry??{})},configurationRevision:s.version};
   }
   if(topic==='provider-catalog'){
-   if(!this.options.nativeAdmin&&scope!=='host'){const value=await this.native(scope,'configuration.providers');s.results['configuration.providers']=value;return {setup:{...value,...s.overlays['provider-catalog']}};}
+   if(!this.options.nativeAdmin&&scope!=='host'){const value=await this.native(scope,'configuration.providers');s.results['configuration.providers']=value;return {setup:{...value,...s.overlays['provider-catalog'],providerSignIn:this.providerSignInAvailability()}};}
    if(!this.options.nativeAdmin)throw Error('This host has no native administration capability.');
-   const setup={...s.overlays['provider-catalog'],...await this.options.nativeAdmin('providers.list',{},context)};s.overlays['provider-catalog']=setup;return {setup};
+   const setup={...s.overlays['provider-catalog'],...await this.options.nativeAdmin('providers.list',{},context)};s.overlays['provider-catalog']=setup;return {setup:{...setup,providerSignIn:this.providerSignInAvailability()}};
   }
   if(topic==='bundles'){
    if(!this.options.nativeAdmin)throw Error('This host has no native bundle catalog administration capability.');
@@ -149,7 +149,7 @@ export class NativeCapabilities {
   const scope=scopeOf(request.channel),args=object(request.args??{}),s=this.state(scope),topic=request.topic as Topic;
   if(request.version!==1||!TOPICS.includes(topic)||typeof request.commandId!=='string'||!request.commandId)throw Error('Valid capability version and command identity required.');
   if(scope!=='host'&&context.session?.uri!==scope)throw Error('Authenticated session context must match the requested scope.');
-  if(args.sessionId&&args.sessionId!==scope)throw Error('Session selector disagrees with authenticated scope.');
+  if(Object.hasOwn(args,'sessionId')&&args.sessionId!==request.channel&&!(request.channel==='host'&&args.sessionId==='ahp-root://'))throw Error('Session selector disagrees with authenticated scope.');
   if(signInSelectors(request.operation,args)&&(!validSignInSelectors(args)||!await this.negotiateProviderSignIn()))throw signInSelectorsUnavailable();
   await this.negotiateBundleCommands();await this.negotiateContextClear();
   if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)&&!this.contextClear)throw contextClearUnavailable();
@@ -292,7 +292,7 @@ export class NativeCapabilities {
     const configuration=op==='configuration.inspect'||op==='configuration.toggle'?result:op==='configuration.apply'?result.configuration:result.configuration;
     updates.push(this.record(scope,'configuration',{configuration:{sessionId:scope,...s.overlays.configuration,...(configuration??{})},configurationRevision:s.version},s));
    }
-   if(topic==='provider-catalog'&&s.overlays[topic]){const data:Json={setup:s.overlays[topic]};if(op==='configuration.defaults'){const key=JSON.stringify([args.workspace??context.session?.workingDirectory??'',args.bundle??'']);data.draftDefaults={[key]:result};}updates.push(this.record(scope,topic,data,s));}
+   if(topic==='provider-catalog'&&s.overlays[topic]){const data:Json={setup:{...s.overlays[topic],providerSignIn:this.providerSignInAvailability()}};if(op==='configuration.defaults'){const key=JSON.stringify([args.workspace??context.session?.workingDirectory??'',args.bundle??'']);data.draftDefaults={[key]:result};}updates.push(this.record(scope,topic,data,s));}
    if(topic==='configuration'&&s.overlays.configuration?.registry)updates.push(this.record(scope,topic,{registry:s.overlays.configuration.registry,configurationRevision:s.version},s));
    if(op==='bundle.save'&&s.overlays.configuration)updates.push(this.record(scope,'configuration',{configuration:{sessionId:scope,...s.overlays.configuration},configurationRevision:s.version},s));
    if(topic==='bundles'&&s.overlays.bundles)updates.push(this.record(scope,topic,s.overlays.bundles,s));
