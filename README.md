@@ -428,3 +428,33 @@ strict proof and local-work checks; it creates no original admission attempt and
 does not authorize a pre-retirement abort. The Native admin participant projects
 Host fence bookkeeping to canonical selectors; direct Native abort and proof
 validation remain strict.
+
+## Canonical conversation naming
+
+Bind `nativeNamingCapabilities` to the genuine peer's initialize naming marker,
+`nativeNaming` to passive `_amplifier/naming` on the canonical session/history
+workspace, and the generic Host `readSessionTitle` / `commitSessionTitle` ports.
+Await `negotiateNaming()` before synchronous manifest registration. Without all
+ports and the actual peer marker, `session.naming` is not advertised.
+
+Public `session.naming` takes exactly one of `regenerate: true` or
+`automatic: boolean`; optional `id` and `sessionId` must match the authenticated
+session channel. Clients must normalize sidebar `id` into that exact channel,
+including actions on conversations other than the current selection. UI and
+agent callers share this owner. Generation runs outside the Host title lock;
+commit uses the captured Host revision and Native candidate/policy revisions.
+Policy updates call no model and omit title from the Host persistence result.
+
+The Host engine metadata adapter must passively persist ordinary manual names
+with their original command identity before projecting standard AHP titles.
+It must reread canonical metadata after interruption or historical receipt
+recovery. The bridge independently rereads after commit so an old successful
+receipt cannot project its old name over a newer manual edit. Original unknown
+commands are inspected through Native receipts and never automatically replayed.
+New naming generation and mutators are refused through generic runtime controls.
+
+`test/naming.test.ts` covers the public contract and races. Set
+`AMPLIFIER_NAMING_PYTHON` and `AMPLIFIER_NATIVE_CAPABILITY_MODULE` to independently
+installed artifacts for the cold-peer integration check. This check performs no
+model call or worker startup; composed Host, browser and real-provider acceptance
+remain separate.

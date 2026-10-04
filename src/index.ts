@@ -1,3 +1,4 @@
+import {namingMetadata,performNaming,type NamingPorts} from './naming.js';
 import {nativeRefusal} from './refusals.js';
 import {contextClearCommandId,contextClearRevision,contextClearMetadata,exactContextClearReview,exactContextClearResult,exactContextReceipt,contextClearUnavailable} from './context-clear.js';
 import {bundleCommandIds,exactBundleReceipt} from './bundle-commands.js';
@@ -8,7 +9,7 @@ export type Json=Record<string,any>;
 export type Topic='configuration'|'provider-catalog'|'bundles'|'runtime-control';
 export interface RecordValue {topic:string;scope:string;revision:number;data:Json;}
 export interface Context {clientId:string;account?:string;origin?:'ui'|'agent';session?:{uri:string;workingDirectory?:string;[key:string]:any};}
-export interface Options {
+export interface Options extends NamingPorts {
  nativeControl:(session:string,operation:string,args:Json)=>Promise<Json>;
  /** Trusted integration resolves/authorizes workspace; this package never accepts a native path as authority. */
  nativeAdmin?:(operation:string,args:Json,context:Context)=>Promise<Json>;
@@ -44,6 +45,15 @@ interface ScopeState {records:Map<Topic,Cached>;results:Json;overlays:Partial<Re
 /** Records contain only the requested topic, are bounded, and expire independently of native durability. */
 export class NativeCapabilities {
  readonly manifest:{version:1;topics:Record<string,{uri:string;version:1;watch:true}>;actions:Record<string,{topic:string;operation:string;method:typeof METHOD}>};
+ private namingNegotiation?:Promise<boolean>;private namingAvailable=false;
+ negotiateNaming=async():Promise<boolean>=>{
+  if(!this.options.nativeNaming||!this.options.nativeNamingCapabilities||!this.options.readSessionTitle||!this.options.commitSessionTitle)return false;
+  if(!this.namingNegotiation)this.namingNegotiation=(async()=>{
+   try{this.namingAvailable=namingMetadata(await this.options.nativeNamingCapabilities!());}catch{this.namingAvailable=false;}
+   if(this.namingAvailable)this.manifest.actions['session.naming']={topic:'runtime-control',operation:'session.naming',method:METHOD};
+   return this.namingAvailable;
+  })();return this.namingNegotiation;
+ };
  private bundleNegotiation?:Promise<boolean>;private bundleCommands=false;
  private contextNegotiation?:Promise<boolean>;private contextClear=false;
  private signInNegotiation?:Promise<boolean>;private scopedSignIn=false;
@@ -101,7 +111,7 @@ export class NativeCapabilities {
   })();
   return this.bundleNegotiation;
  };
- actionSchemas=async()=>{await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.sessionId;delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;delete advertised.schema.dependentRequired;}return [name,advertised];}));};
+ actionSchemas=async()=>{await this.negotiateNaming();await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.sessionId;delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;delete advertised.schema.dependentRequired;}return [name,advertised];}));};
  private now(){return(this.options.clock??Date.now)();}
  private state(scope:string){
   let value=this.scopes.get(scope);if(!value){
@@ -151,9 +161,18 @@ export class NativeCapabilities {
   if(scope!=='host'&&context.session?.uri!==scope)throw Error('Authenticated session context must match the requested scope.');
   if(Object.hasOwn(args,'sessionId')&&args.sessionId!==request.channel&&!(request.channel==='host'&&args.sessionId==='ahp-root://'))throw Error('Session selector disagrees with authenticated scope.');
   if(signInSelectors(request.operation,args)&&(!validSignInSelectors(args)||!await this.negotiateProviderSignIn()))throw signInSelectorsUnavailable();
-  await this.negotiateBundleCommands();await this.negotiateContextClear();
+  await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateNaming();
   if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)&&!this.contextClear)throw contextClearUnavailable();
   const advertised=Object.values(this.manifest.actions).find(row=>row.operation===request.operation&&row.topic===topic);if(!advertised)throw Error('Native action not advertised.');
+  if(request.operation==='session.naming'){
+   if(scope==='host'||!this.namingAvailable)throw Error('Canonical naming is unavailable for this session.');
+   s.pending++;
+   try{
+    const result=await performNaming(this.options,scope,args,request.commandId);
+    this.invalidate(scope,['runtime-control']);
+    return {accepted:result.applied===true,updates:[],invalidate:['runtime-control'],result,_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+   }finally{s.pending--;}
+  }
   if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)){
    if(scope==='host')throw contextClearUnavailable('Select an admitted native session for context clearing.');
    const operation=request.operation,meta={'amplifier.dev/operation':{id:request.commandId}};
@@ -197,7 +216,7 @@ export class NativeCapabilities {
   s.pending++;
   try {
    if(op==='runtime.control'){op=args.operation;arguments_=object(args.args??{});if(typeof op!=='string'||forbiddenFields.has(op))throw Error('Native operation required.');
-    if(['context.clear','context.clear.review','context.clear.receipt','history.edit','history.revise','steer','steer.submit','session.relocate'].includes(op)||['question.','schedule.','observation.','memory.','operations.','kernels.'].some(prefix=>op.startsWith(prefix)))throw Error('Use the admitted capability owned by this operation; generic native controls cannot bypass its lifecycle or receipts.');
+    if(['context.clear','context.clear.review','context.clear.receipt','history.edit','history.revise','steer','steer.submit','session.relocate','session.naming.generate','session.naming.commit','session.naming.policy','session.naming.rename'].includes(op)||['question.','schedule.','observation.','memory.','operations.','kernels.'].some(prefix=>op.startsWith(prefix)))throw Error('Use the admitted capability owned by this operation; generic native controls cannot bypass its lifecycle or receipts.');
     if(op==='tool.invoke')arguments_={...arguments_,actor:context.origin??'ui'};
    }else{const {sessionId:_selector,...values}=arguments_;arguments_=values;}
    if(request.operation==='runtime.control'||['configuration.inspect','configuration.apply','configuration.toggle','configuration.cancel','bundle.preview','bundle.switch'].includes(op)){
