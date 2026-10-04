@@ -232,7 +232,7 @@ export class NativeCapabilities {
     if(['bundle.export','bundle.save'].includes(op)&&scope!=='host'){const config=await this.native(scope,'configuration.inspect');arguments_={...arguments_,effectiveConfig:config.plan,rootBundle:config.bundle,resources:await this.native(scope,'configuration.exportResources')};}
     if(['providers.login','providers.loginStatus','providers.loginCancel'].includes(op)&&scope!=='host'){
      const providers=await this.options.nativeAdmin('providers.list',{},context);const selected=providers.providers?.find((row:Json)=>row.id===args.id);
-     if(selected&&selected.module!=='provider-openai-chatgpt'){const operation=op==='providers.login'?'configuration.providerLogin':op==='providers.loginStatus'?'configuration.providerLoginStatus':'configuration.providerLoginCancel';const login=await this.native(scope,operation,{provider:args.id,...(args.restart?{restart:true}:{})});result={providerId:args.id,login:{...login,providerId:args.id}};}
+     if(selected&&selected.module!=='provider-openai-chatgpt'){const operation=op==='providers.login'?'configuration.providerLogin':op==='providers.loginStatus'?'configuration.providerLoginStatus':'configuration.providerLoginCancel';const login=await dispatched(()=>this.native(scope,operation,{provider:args.id,...(args.restart?{restart:true}:{})}));result={providerId:args.id,login:{...login,providerId:args.id}};}
      else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
     }else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
     if(topic==='provider-catalog'){
