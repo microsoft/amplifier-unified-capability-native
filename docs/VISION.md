@@ -26,6 +26,9 @@ checks does not ratify a new design or prove product adoption.
 - Keep saved preferences, effective configuration and mounted runtime distinct.
   A completed bundle save remains visible when activation needs a model choice,
   refuses, or becomes unknown. Recovery inspects the original outcome without replay.
+- Preserve explicit native preflight failure evidence equally for user and agent
+  callers, while keeping prior uncertain commands and post-effect ambiguity intact.
+  A settled failure is not permission to replay an input or redo a tool effect.
 - Load only the selected topic/scope, bound resident caches, and invalidate lazily.
   Private editing state remains with the client.
 

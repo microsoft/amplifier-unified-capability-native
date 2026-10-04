@@ -35,7 +35,7 @@ export class AdminConnection {
  constructor(private options:AdminOptions){}
  private idle(){try{this.options.onMayBeIdle?.();}catch{/* Advisory only; never change a completed operation result. */}}
  private async start(){
-  if(this.closed)throw Error('Native administration connection closed; an uncertain operation is never replayed.');
+  if(this.closed)throw Object.assign(Error('Native administration connection closed; no new request was dispatched. Inspect original receipts; earlier outcomes are unchanged.'),{data:{executed:false,replayed:false,reason:'native-admin-connection-closed'}});
   if(this.starting)return this.starting;
   this.starting=(async()=>{
    const process_=this.process=spawn(this.options.command,this.options.args??[],{cwd:this.options.cwd,env:{...process.env,...this.options.env},stdio:'pipe'});
@@ -112,7 +112,7 @@ export class AdminConnection {
  private invoke=async(operation:string,args:Json,context:Context,importWorkspace?:string):Promise<Json>=>{
   const scope=this.maintenance.getStore(),permitted=this.held?.phase==='held'&&scope?.active&&scope.fenceId===this.held.context.fenceId&&scope.commandId===this.held.context.commandId&&MAINTENANCE.has(operation);
   if(this.held&&!READS.has(operation)&&!permitted)throw fenced();
-  if(this.closed)throw Error('Native administration connection closed; work is never replayed');
+  if(this.closed)throw Object.assign(Error('Native administration connection closed; no new request was dispatched. Inspect original receipts; earlier outcomes are unchanged.'),{data:{executed:false,replayed:false,reason:'native-admin-connection-closed',operation}});
   this.calls++;
   try{
    const cwd=importWorkspace??await this.options.resolveWorkspace(context);await this.start();

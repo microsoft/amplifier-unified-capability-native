@@ -1,3 +1,4 @@
+import {nativeRefusal} from './refusals.js';
 import {contextClearCommandId,contextClearRevision,contextClearMetadata,exactContextClearReview,exactContextClearResult,exactContextReceipt,contextClearUnavailable} from './context-clear.js';
 import {bundleCommandIds,exactBundleReceipt} from './bundle-commands.js';
 import {ACTION_SCHEMAS} from './action-schemas.js';
@@ -192,10 +193,11 @@ export class NativeCapabilities {
     if(op==='configuration.apply'||['task.create','task.update','task.pause','task.resume','task.block','task.complete'].includes(op))arguments_={...arguments_,commandId:request.commandId};
     try{result=await dispatched(()=>this.native(scope,op,arguments_));}catch(error){
      const data=(error as {data?:Json}).data;
-     if(op.startsWith('task.')&&data?.reason==='task-preflight-refused'&&data.executed===false)return {accepted:false,updates:[],invalidate:[],result:{applied:false,executed:false,replayed:false,reason:data.reason,message:(error as Error).message},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
-     if(op==='configuration.apply'&&data?.reason==='configuration-conflict'&&data.executed===false){
+     const refusal=nativeRefusal(error);
+     if(op.startsWith('task.')&&data?.reason==='task-preflight-refused'&&refusal)return {accepted:false,updates:[],invalidate:[],result:refusal,_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+     if(op==='configuration.apply'&&data?.reason==='configuration-conflict'&&refusal){
       this.invalidate(scope,['configuration']);
-      return {accepted:false,updates:[],invalidate:['configuration'],result:{applied:false,executed:false,replayed:false,reason:'configuration-conflict',configurationRevision:data.configurationRevision,message:(error as Error).message},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+      return {accepted:false,updates:[],invalidate:['configuration'],result:refusal,_meta:{'amplifier.dev/operation':{id:request.commandId}}};
      }
      throw error;
     }
@@ -230,7 +232,7 @@ export class NativeCapabilities {
     if(['bundle.export','bundle.save'].includes(op)&&scope!=='host'){const config=await this.native(scope,'configuration.inspect');arguments_={...arguments_,effectiveConfig:config.plan,rootBundle:config.bundle,resources:await this.native(scope,'configuration.exportResources')};}
     if(['providers.login','providers.loginStatus','providers.loginCancel'].includes(op)&&scope!=='host'){
      const providers=await this.options.nativeAdmin('providers.list',{},context);const selected=providers.providers?.find((row:Json)=>row.id===args.id);
-     if(selected&&selected.module!=='provider-openai-chatgpt'){const operation=op==='providers.login'?'configuration.providerLogin':op==='providers.loginStatus'?'configuration.providerLoginStatus':'configuration.providerLoginCancel';const login=await this.native(scope,operation,{provider:args.id,...(args.restart?{restart:true}:{})});result={providerId:args.id,login:{...login,providerId:args.id}};}
+     if(selected&&selected.module!=='provider-openai-chatgpt'){const operation=op==='providers.login'?'configuration.providerLogin':op==='providers.loginStatus'?'configuration.providerLoginStatus':'configuration.providerLoginCancel';const login=await dispatched(()=>this.native(scope,operation,{provider:args.id,...(args.restart?{restart:true}:{})}));result={providerId:args.id,login:{...login,providerId:args.id}};}
      else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
     }else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
     if(topic==='provider-catalog'){
@@ -281,9 +283,9 @@ export class NativeCapabilities {
   }catch(error){
    // An authoritative no-effect proof is a refusal, not a lost result. Never
    // infer that proof from an RPC code/message or contradict an unknown outcome.
-   const data=(error as {data?:Json}).data;
-   if(error===nativeRejection&&['bundle.switch','bundle.save','bundle.export','bundle.default','provider.select','provider.reset'].includes(op)&&data&&typeof data==='object'&&!Array.isArray(data)&&data.executed===false&&data.outcome!=='unknown'&&data.applied!==true){
-    return {accepted:false,updates:[],invalidate:[],result:{applied:false,...copy(data),message:(error as Error).message},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+   const refusal=error===nativeRejection?nativeRefusal(error):undefined;
+   if(refusal){
+    return {accepted:false,updates:[],invalidate:[],result:refusal,_meta:{'amplifier.dev/operation':{id:request.commandId}}};
    }
    throw error;
   }finally{s.pending--;}

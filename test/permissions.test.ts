@@ -38,7 +38,7 @@ test('actual native permissions bridge preserves CAS, passive held receipts and 
   const lease=await admin.quiescenceParticipant.acquire({fenceId:'fence',commandId:'stop',purpose:'distribution-update',instanceId:'host',dataScope:'scope'});assert.ok(lease);
   assert.equal((await action('permissions.get',{scope:'project'})).result.revision,saved.result.result.revision);
   assert.deepEqual((await action('permissions.receipt',{commandId:'saved'})).result,saved.result);
-  await assert.rejects(action('permissions.save',{...args,expectedRevision:saved.result.result.revision},'blocked'),/intake is held/);
+  const blocked=await action('permissions.save',{...args,expectedRevision:saved.result.result.revision},'blocked');assert.equal(blocked.accepted,false);assert.equal(blocked.result.executed,false);assert.match(blocked.result.message,/intake is held/);
   await lease.release('unchanged',{kind:'admission-refused'});
   await assert.rejects(admin.perform('permissions.save',{scope:'global'},{clientId:'agent',origin:'agent',session:{uri:sid}}),/restricted/);
   await assert.rejects(stat(join(home,'projects')));
