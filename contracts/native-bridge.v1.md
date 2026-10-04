@@ -319,3 +319,10 @@ through trusted `AdminOptions.ownerId`. Identical authenticated abort retries,
 including replacement processes after lost replies, return the original durable
 receipt. Different proof or context cannot reuse it. An unknown abort keeps local
 intake closed. This operation never invokes ordinary `reconcileRelease`.
+
+A completed abort receipt remains readable under a newer local fence or pending
+Node work. In that case the bridge uses the passive original `admissionReceipt`
+lookup, verifies the completed state, exact original context and abort proof, and
+validates the seven-field receipt. It preserves every current hold and pending
+operation. This path cannot perform first settlement: an absent, incomplete, or
+mismatched receipt refuses while normal Node admission accounting remains busy.

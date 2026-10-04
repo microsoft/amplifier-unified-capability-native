@@ -210,8 +210,19 @@ export class AdminConnection {
   const keys=['commandId','fenceId','instanceId','dataScope','purpose'];
   const bounded=(v:unknown)=>typeof v==='string'&&v.length>0&&v.length<=200&&!/[\u0000-\u001f]/.test(v);
   if(Object.keys(context).length!==5||keys.some(k=>!bounded((context as any)[k]))||context.purpose!=='distribution-update'||!proof||Object.keys(proof).sort().join(',')!==[...keys,'kind','verified','receiptId'].sort().join(',')||proof.kind!=='distribution-admission-abort'||proof.verified!==true||!bounded(proof.receiptId)||keys.some(k=>(proof as any)[k] !== (context as any)[k]))throw Error('Exact authenticated admission abort proof required');
-  if(this.admissionPending||this.calls||this.held?.phase==='checking')throw fenced();
-  if(this.held&&keys.some(k=>(this.held!.context as any)[k] !== (context as any)[k]))throw fenced();
+  const receipt=(result:Json):AdminAdmissionAbortReceipt=>{
+   if(Object.keys(result).sort().join(',')!==['ownerId','status','receiptId','commandId','fenceId','instanceId','dataScope'].sort().join(',')||result.ownerId!=='native-admin'||!['released','not-acquired'].includes(result.status)||!bounded(result.receiptId)||['commandId','fenceId','instanceId','dataScope'].some(k=>result[k] !== (context as any)[k]))throw Error('Native admission abort receipt is unconfirmed');
+   return {...result,ownerId:this.options.ownerId??'native-admin'} as AdminAdmissionAbortReceipt;
+  };
+  if(this.admissionPending||this.calls||this.held?.phase==='checking'||(this.held&&keys.some(k=>(this.held!.context as any)[k] !== (context as any)[k]))){
+   // Reading a conclusively completed receipt never settles or changes intake.
+   // First settlement still requires the original Node accounting to be idle.
+   await this.start();if(!this.admissionAbortSupported)throw Error('Durable Native admission abort is unavailable');
+   const cwd=await this.options.resolveWorkspace({clientId:''});
+   const prior=await this.rpc('_amplifier/admin/lifecycle',{cwd,operation:'admissionReceipt',args:{...context}});
+   if(prior.version!==1||prior.state!=='aborted'||evidenceKey(prior.context)!==evidenceKey(context)||evidenceKey(prior.abortProof)!==evidenceKey(proof)||!prior.abortReceipt)throw fenced();
+   return receipt(prior.abortReceipt);
+  }
   // Fence before passive startup and workspace resolution can yield.
   this.held??={context:{...context},phase:'unknown'};
   this.admissionPending=true;
@@ -219,9 +230,9 @@ export class AdminConnection {
    await this.start();if(!this.admissionAbortSupported)throw Error('Durable Native admission abort is unavailable');
    const cwd=await this.options.resolveWorkspace({clientId:''});
    const result=await this.rpc('_amplifier/admin/lifecycle',{cwd,operation:'abortAdmission',args:{...context,proof}});
-   if(Object.keys(result).sort().join(',')!==['ownerId','status','receiptId','commandId','fenceId','instanceId','dataScope'].sort().join(',')||result.ownerId!=='native-admin'||!['released','not-acquired'].includes(result.status)||!bounded(result.receiptId)||['commandId','fenceId','instanceId','dataScope'].some(k=>result[k] !== (context as any)[k]))throw Error('Native admission abort receipt is unconfirmed');
+   const resultReceipt=receipt(result);
    this.held=undefined;
-   return {...result,ownerId:this.options.ownerId??'native-admin'} as AdminAdmissionAbortReceipt;
+   return resultReceipt;
   }catch(error){if(this.held)this.held.phase='unknown';throw error;}finally{this.admissionPending=false;}
  }
  get quiescenceParticipant(){return {

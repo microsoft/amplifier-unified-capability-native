@@ -256,3 +256,28 @@ test('original local no-dispatch refusal supplies not-acquired after replacement
  const first=new AdminConnection(options),next=new AdminConnection(options),context={fenceId:'refused-fence',commandId:'update',purpose:'distribution-update' as const,instanceId:'host',dataScope:'scope'},proof={...context,kind:'distribution-admission-abort' as const,verified:true as const,receiptId:'host-proof'};
  try{(first as any).calls=1;assert.equal(await first.quiescenceParticipant.acquire(context),null);(first as any).calls=0;await first.close();assert.equal((await next.abortAdmission({...context,proof})).status,'not-acquired');}finally{await first.close();await next.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('completed abort receipt is passive under a newer hold and pending Node work; first settlement stays blocked',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'amplifier-admin-old-abort-')),workspace=join(dir,'workspace');await mkdir(workspace);const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home:join(dir,'home'),appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],workerCommand:['/impossible/admin-worker']}));
+ let unblock!:()=>void;const pending=new Promise<void>(resolve=>unblock=resolve);
+ const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-B','-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:async(context:any)=>{if(context.clientId==='pending-read')await pending;return workspace;},ownerId:'configured-native-owner'};
+ const admin=new AdminConnection(options),original={fenceId:'old-fence',commandId:'old-update',purpose:'distribution-update' as const,instanceId:'host',dataScope:'owned'},newer={...original,fenceId:'newer-fence',commandId:'newer-update'};
+ const proof=(context:typeof original)=>({...context,kind:'distribution-admission-abort' as const,verified:true as const,receiptId:'proof-'+context.fenceId});
+ try{
+  assert.ok(await admin.quiescenceParticipant.acquire(original));const receipt=await admin.abortAdmission({...original,proof:proof(original)});
+  assert.ok(await admin.quiescenceParticipant.acquire(newer));const before=await admin.inspectLifecycle();
+  assert.deepEqual(await admin.abortAdmission({...original,proof:proof(original)}),receipt);assert.deepEqual((await admin.inspectLifecycle()).lease,before.lease);
+  const read=admin.perform('voice.configuration',{},{clientId:'pending-read'});assert.equal((admin as any).calls,1);
+  assert.deepEqual(await admin.abortAdmission({...original,proof:proof(original)}),receipt);assert.equal((admin as any).calls,1);
+  await assert.rejects(admin.abortAdmission({...original,proof:{...proof(original),receiptId:'different-proof'}}));
+  await assert.rejects(admin.abortAdmission({...newer,proof:proof(newer)}));assert.deepEqual((await admin.inspectLifecycle()).lease,before.lease);
+  unblock();await read;
+  const rpc=(admin as any).rpc.bind(admin);let started!:()=>void,finish!:()=>void;const observed=new Promise<void>(resolve=>started=resolve),reply=new Promise<void>(resolve=>finish=resolve);
+  (admin as any).rpc=async(method:string,params:any)=>{const value=await rpc(method,params);if(params.operation==='abortAdmission'){started();await reply;}return value;};
+  const settling=admin.abortAdmission({...newer,proof:proof(newer)});await observed;assert.equal((admin as any).admissionPending,true);
+  assert.deepEqual(await admin.abortAdmission({...original,proof:proof(original)}),receipt);assert.equal((admin as any).admissionPending,true);assert.equal((admin as any).held.context.fenceId,newer.fenceId);
+  assert.equal((await admin.abortAdmission({...newer,proof:proof(newer)})).status,'released');assert.equal((admin as any).admissionPending,true);assert.equal((admin as any).held.context.fenceId,newer.fenceId);
+  await assert.rejects(admin.perform('modules.save',{section:'tools',module:'never',config:{}},{clientId:'test'}));finish();await settling;
+  assert.equal((await admin.inspectLifecycle()).intakeClosed,false);
+ }finally{unblock();await admin.close();await rm(dir,{recursive:true,force:true});}
+});
