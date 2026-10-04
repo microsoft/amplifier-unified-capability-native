@@ -5,7 +5,7 @@ import {ACTION_SCHEMAS} from './action-schemas.js';
 export type Json=Record<string,any>;
 export type Topic='configuration'|'provider-catalog'|'bundles'|'runtime-control';
 export interface RecordValue {topic:string;scope:string;revision:number;data:Json;}
-export interface Context {clientId:string;origin?:'ui'|'agent';session?:{uri:string;workingDirectory?:string;[key:string]:any};}
+export interface Context {clientId:string;account?:string;origin?:'ui'|'agent';session?:{uri:string;workingDirectory?:string;[key:string]:any};}
 export interface Options {
  nativeControl:(session:string,operation:string,args:Json)=>Promise<Json>;
  /** Trusted integration resolves/authorizes workspace; this package never accepts a native path as authority. */
@@ -294,3 +294,5 @@ export {AdminConnection,type AdminOptions,type AdminFenceContext,type AdminRelea
 export type {ServiceIdentity,ServiceReleaseFields} from './service-lifecycle.js';
 
 export {PermissionsCapabilities,createPermissionsCapabilities,PERMISSION_ACTION_SCHEMAS,type PermissionsOptions} from './permissions.js';
+
+export {MessageConnection,MessageCapabilities,createMessageCapabilities,MESSAGE_ACTION_SCHEMAS,type MessageOptions} from './messages.js';
