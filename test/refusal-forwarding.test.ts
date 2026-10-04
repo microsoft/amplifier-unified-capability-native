@@ -20,3 +20,15 @@ test('successful model result survives selected catalog refresh failure unchange
  const provider=createNativeCapabilities({nativeControl:async(_scope:string,op:string,args:any)=>{calls.push(op);if(op==='capabilities')return {controls:['provider.select']};if(op==='provider.select'){assert.deepEqual(args,{instance:'refused',model:'fixture-model'});return structuredClone(native);}throw Error('Catalog read unavailable');}});
  const result=await provider.action(request('provider.select','original-selection'),context);assert.equal(result.accepted,true);assert.deepEqual(result.result,native);assert.equal(result._meta['amplifier.dev/operation'].id,'original-selection');assert.equal(calls.filter(op=>op==='provider.select').length,1);assert.deepEqual(result.updates[0].data.runtimeControl[scope]['configuration.providers'],{available:false,reason:'refresh-unavailable'});
 });
+
+test('post-success invalidation listener proof cannot reclassify an executed native mutation',async()=>{
+ for(const op of ['provider.select','provider.reset','bundle.switch','bundle.save','bundle.export','bundle.default']){
+  let effects=0;const native={saved:op==='bundle.save'?{name:'saved'}:undefined,selection:{instance:'fixture'},applied:true};
+  const provider=createNativeCapabilities({nativeControl:async(_scope:string,operation:string)=>{if(operation==='capabilities')return {controls:[op]};if(operation==='configuration.inspect')return {plan:{},bundle:'fixture'};if(operation==='configuration.exportResources'||operation==='configuration.providers')return {};effects++;return native;},nativeAdmin:async()=>{effects++;return native;},onInvalidate:()=>{throw Object.assign(Error('Listener failed'),{data:{executed:false,replayed:false}});}});
+  const result=await provider.action(request(op,'listener-'+op),context);assert.equal(result.accepted,true);assert.equal(result.result.applied,true);assert.equal(result.result.executed,undefined);assert.equal(effects,op==='bundle.save'?2:1);
+ }
+});
+test('preflight read false proof is not the selected mutation refusal',async()=>{
+ let effects=0;const error=Object.assign(Error('Read refused'),{data:{executed:false}}),provider=createNativeCapabilities({nativeControl:async()=>{throw error;},nativeAdmin:async()=>{effects++;return {};}});
+ await assert.rejects(provider.action(request('bundle.save','read-refused'),context),(value:any)=>value===error);assert.equal(effects,0);
+});
