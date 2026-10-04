@@ -157,12 +157,22 @@ never changes current goal truth, which may have changed after the original clea
 
 ## Preview refusal and generation grant
 
-Bundle switch/save/export/default and provider select/reset errors carrying
-explicit native `executed:false`, without contradictory unknown or applied
-proof, return `accepted:false`, no updates or invalidations, and the copied native
+Every advertised native capability action and the separate permissions owner
+preserve the selected native operation rejection carrying explicit `executed:false`,
+without contradictory unknown or applied proof, as `accepted:false`, no updates or invalidations, and the copied native
 fields plus `applied:false` and the original message. The public command metadata
 remains unchanged. Other errors propagate unchanged; neither error wording nor
-RPC codes establish absence of effects. Refusal never triggers refresh or replay.
+RPC codes establish absence of effects. Refusal never triggers refresh or replay. The proof must come from the selected
+operation port, never a preparatory read or a post-success projection callback.
+Task and configuration refusals retain the full native fields. Permission projection
+listener failure cannot discard a confirmed successful save.
+
+A closed administration connection emits `native-admin-connection-closed` only
+for a new request blocked before dispatch. That rejection leaves every previous
+receipt unchanged; a prior lost reply remains unknown. Original IDs are never
+resent and the connection is never automatically restarted. Prompt/turn failures
+are owned by native execution and the host admission path; this package cannot
+classify them from exception names or provider error text.
 
 Standard ACP model choices are opaque identifiers owned by the host configuration
 route. Clients submit advertised choices through that route. The alternate native

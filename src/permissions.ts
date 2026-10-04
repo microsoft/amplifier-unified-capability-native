@@ -1,3 +1,4 @@
+import {nativeRefusal} from './refusals.js';
 /** Native-owned write-path settings; the host binds workspace authority. */
 import type {Context,Json,RecordValue} from './index.js';
 export interface PermissionsOptions {
@@ -59,8 +60,10 @@ export class PermissionsCapabilities {
   }
   this.validate(operation,args,selected,context);
   const {sessionId:_selector,...values}=args;
-  const result=await this.options.nativeAdmin(operation,operation==='permissions.save'?{...values,commandId:request.commandId}:values,context);
-  if(operation==='permissions.save'&&result.status==='succeeded')this.options.onInvalidate?.('permissions','host');
+  let result:Json;
+  try{result=await this.options.nativeAdmin(operation,operation==='permissions.save'?{...values,commandId:request.commandId}:values,context);}
+  catch(error){const refusal=nativeRefusal(error);if(refusal)return{accepted:false,result:refusal,updates:[],invalidate:[],_meta:{'amplifier.dev/operation':{id:request.commandId}}};throw error;}
+  if(operation==='permissions.save'&&result.status==='succeeded')try{this.options.onInvalidate?.('permissions','host');}catch{/* Advisory projection failure cannot change the settled native result. */}
   return {accepted:result?.status!=='failed',result:structuredClone(result),updates:[],invalidate:[],_meta:{'amplifier.dev/operation':{id:request.commandId}}};
  };
 }
