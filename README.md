@@ -403,7 +403,9 @@ Set trusted `MessageOptions.admissionDirectory` to the capability-owned absolute
 directory, normally `join(stateDirectory, 'capabilities', 'native-messages')`.
 The adapter creates it with mode 0700 and retains a small SQLite intake journal
 plus a lifetime owner lock. It rejects symlink directory/database targets,
-partial journal schemas and competing owners. This journal stores admission
+partial journal schemas and competing owners. Bounded read-only startup checks
+require the main and all sidecars to be absent for fresh state, or an exact
+existing schema and matching required identity singleton. No identity is repaired. This journal stores admission
 identity, holds, original acquire/refusal attempts, abort receipts and unsettled
 request accounting; Native continues to own reactions, message metadata and history.
 
@@ -413,7 +415,10 @@ and atomically records its receipt and removes only its own original hold.
 Identical completed receipts remain readable under newer holds or pending work;
 changed proof, missing original attempt and unknown work refuse. An unknown
 message effect survives replacement and is never replayed. All initialization,
-history and message RPCs join durable intake accounting.
+history and message RPCs count as active work in memory. Only actual reaction
+dispatch creates a durable effect marker, after passive preparation, retaining
+its original command and selected-session binding. Interrupted passive reads
+create no business-unknown state or journal writes.
 
 Without this directory existing invocation and normal release APIs remain
 compatible, but durable admission abort refuses as unavailable. Supervised

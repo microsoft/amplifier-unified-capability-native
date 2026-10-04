@@ -40,7 +40,7 @@ export class MessageConnection {
  private authority(context:Context){if(context.account!==this.options.account||!context.session?.uri?.startsWith('ahp-session:/'))throw refused('Authenticated account and selected session required');}
  capabilities=async():Promise<Json|undefined>=>this.tracked(async()=>await this.start()?structuredClone(this.metadata):undefined);
  activity=()=>({calls:this.calls,intakeClosed:!!this.held||this.uncertain||this.closed,uncertain:this.uncertain,closed:this.closed});
- private async tracked<T>(work:()=>Promise<T>):Promise<T>{if(this.held||this.uncertain)throw refused('Message intake is fenced; no new native request dispatched');const call=this.admission?.begin();this.calls++;try{return await work();}finally{if(call)this.admission!.end(call,this.uncertain);this.calls--;if(!this.calls)try{this.options.onMayBeIdle?.();}catch{/* Advisory only. */}}}
+ private async tracked<T>(work:()=>Promise<T>):Promise<T>{if(this.held||this.uncertain)throw refused('Message intake is fenced; no new native request dispatched');this.calls++;try{return await work();}finally{this.calls--;if(!this.calls)try{this.options.onMayBeIdle?.();}catch{/* Advisory only. */}}}
  private fenceContext(value:Readonly<AdminFenceContext>):Readonly<AdminFenceContext>{
   const context={fenceId:value.fenceId,commandId:value.commandId,purpose:value.purpose,instanceId:value.instanceId,dataScope:value.dataScope,...(value.serviceIdentity!==undefined?{serviceIdentity:serviceIdentity(value.serviceIdentity)}:{})};
   for(const key of ['fenceId','commandId','purpose','instanceId','dataScope'] as const)if(!token(context[key]))throw refused('Exact bounded message fence required');
@@ -138,7 +138,15 @@ export class MessageConnection {
    }
   }
   if(operation==='reaction'&&args.reference?.sessionId!==selected.nativeSessionId)throw refused('Message reference belongs to another native session');
-  return this.deadline(this.client!.extMethod('_amplifier/message/'+operation,{...args,sessionId:selected.nativeSessionId}),this.options.timeoutMs??10000,operation==='reaction');
+  if(operation!=='reaction')return this.deadline(this.client!.extMethod('_amplifier/message/'+operation,{...args,sessionId:selected.nativeSessionId}),this.options.timeoutMs??10000);
+  if(!token(args.commandId))throw refused('Exact original reaction command required');
+  // Only actual mutation dispatch creates durable unknown-effect accounting.
+  // Passive preparation and reads join quiescence through in-memory calls only.
+  const call=this.admission?.begin({operation:'reaction',commandId:args.commandId,scope:selected.uri,sessionId:selected.nativeSessionId,cwd:selected.workingDirectory});
+  let unknown=false;
+  try{return await this.deadline(this.client!.extMethod('_amplifier/message/reaction',{...args,sessionId:selected.nativeSessionId}),this.options.timeoutMs??10000,true);}
+  catch(error){unknown=!nativeRefusal(error);throw error;}
+  finally{if(call)this.admission!.end(call,unknown);}
  });
  async close(){if(this.calls||this.uncertain)throw Error('Message requests remain in flight or uncertain; preserve the connection and inspect original receipts');this.closed=true;this.admission?.close();this.admission=undefined;this.listeners.clear();this.process?.stdin.end();this.process?.kill();}
 }
