@@ -65,6 +65,18 @@ support before exposing optional controls.
 
 ## Optional peer availability
 
+Scoped standalone sign-in selectors require the initialized administration
+peer's exact closed `providerSignIn` marker
+`{version:1,workspaceBound:true,scopedAttempts:true}`. The bridge advertises
+optional status/cancel `scope` and `loginId` fields only after validating that
+marker through trusted composition. `AdminConnection` independently checks its
+actual current peer before dispatch. Unsupported peers or resident-provider
+routes cannot silently drop these selectors into a different flow. User and
+agent callers have the same guards and preserve the native attempt ID.
+The [controlled fixtures](../test/provider-signin.integration.test.ts) qualify
+actual old-peer refusal before an administration RPC and scoped offline
+provider-owned sign-in; they do not qualify external sign-in links or accounts.
+
 Native administration remains optional for generic host/history and other engine
 access. A bounded passive initialization failure is `unavailable`, not a permanent
 unsupported claim or a rejected promise shared by unrelated schemas/controls.
