@@ -458,3 +458,11 @@ New naming generation and mutators are refused through generic runtime controls.
 installed artifacts for the cold-peer integration check. This check performs no
 model call or worker startup; composed Host, browser and real-provider acceptance
 remain separate.
+
+Trusted distribution composition can call `admin.namingCapabilities()` and
+`admin.performNaming({sessionId,cwd,operation,args})` on this same connection.
+The marker comes from the initialized Native peer; passive reads and receipts
+remain available during held intake, while rename, policy and commit are fenced.
+Selectors are captured before initialization awaits. These ports do not create a
+worker, generator, journal or additional quiescence participant. The Host owns
+selected history binding, title serialization and UI projection.

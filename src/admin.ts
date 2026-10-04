@@ -1,3 +1,4 @@
+import {namingMetadata} from './naming.js';
 import {contextClearMetadata,contextClearUnavailable} from './context-clear.js';
 import {providerSignInMetadata,signInSelectors,validSignInSelectors,signInSelectorsUnavailable} from './provider-signin.js';
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
@@ -32,7 +33,7 @@ const fenced=()=>Object.assign(Error('Native administration intake is held; no n
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private admissionAbortSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
- private providerSignInMetadata?:Json;
+ private providerSignInMetadata?:Json;private namingMetadata?:Json;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
  private admissionPending=false;
  private releases=new Map<string,string>();
@@ -60,6 +61,7 @@ export class AdminConnection {
    const native=init.agentCapabilities?._meta?.['amplifier.dev/native'] as Json|undefined;
    if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Object.assign(Error('Agent has no launcher-enabled native administration v1 capability.'),{data:{executed:false,replayed:false,reason:'native-admin-unavailable'}});}
    this.generationsMetadata=native.admin.generations?structuredClone(native.admin.generations):undefined;
+   this.namingMetadata=native.naming?structuredClone(native.naming):undefined;
    this.contextMetadata=native.contextClear?structuredClone(native.contextClear):undefined;
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
    this.providerSignInMetadata=native.admin.providerSignIn?structuredClone(native.admin.providerSignIn):undefined;
@@ -86,6 +88,17 @@ export class AdminConnection {
  /** Passive metadata from this connection's initialized engine, not a client assertion. */
  async bundleCommandCapabilities():Promise<Json|undefined>{
   this.calls++;try{await this.start();return this.bundleMetadata?structuredClone(this.bundleMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ /** Actual passive naming marker from this initialized administration peer. */
+ async namingCapabilities():Promise<Json|undefined>{
+  this.calls++;try{await this.start();return namingMetadata(this.namingMetadata)?structuredClone(this.namingMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ /** Trusted Host history binding only; no worker or active session admission. */
+ async performNaming(input:{sessionId:string;cwd:string;operation:'read'|'rename'|'policy'|'commit'|'receipt';args:Json}):Promise<Json>{
+  if(!input||Object.keys(input).sort().join(',')!=='args,cwd,operation,sessionId'||typeof input.sessionId!=='string'||!input.sessionId||input.sessionId.length>200||/[\x00-\x1f]/.test(input.sessionId)||typeof input.cwd!=='string'||!input.cwd.startsWith('/')||input.cwd.length>8192||/[\x00-\x1f]/.test(input.cwd)||!['read','rename','policy','commit','receipt'].includes(input.operation)||!input.args||typeof input.args!=='object'||Array.isArray(input.args)||Buffer.byteLength(JSON.stringify(input.args))>16384)throw Error('Exact bounded trusted naming selectors required');
+  const captured=structuredClone(input);
+  if(this.held&&!['read','receipt'].includes(captured.operation))throw fenced();
+  this.calls++;try{await this.start();if(!namingMetadata(this.namingMetadata))throw Error('Passive naming is unavailable on the configured Native peer');return await this.rpc('_amplifier/naming',captured);}finally{this.calls--;if(!this.calls)this.idle();}
  }
  /** Passive scoped sign-in metadata from this connection's actual initialized peer. */
  async providerSignInCapabilities():Promise<Json|undefined>{
