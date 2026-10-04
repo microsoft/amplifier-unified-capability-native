@@ -11,7 +11,8 @@ export function exactBundleReceipt(value:Record<string,any>,operation:string,com
  const fail=()=>{throw Error('Native bundle receipt does not bind the exact child operation.');};
  if(!value||Object.keys(value).some(k=>k!=='receipt')||!('receipt' in value))return fail();
  const r=value.receipt;if(r===null)return null;
- if(!r||Array.isArray(r)||typeof r!=='object'||Object.keys(r).some(k=>!['version','commandId','operation','status','createdAt','completedAt','replayed','executed','reason','result'].includes(k))||r.version!==1||r.commandId!==commandId||r.operation!==operation||!['succeeded','refused','unknown'].includes(r.status)||r.replayed!==false||!Number.isFinite(r.createdAt)||r.createdAt<0)return fail();
+ if(!r||Array.isArray(r)||typeof r!=='object'||Object.keys(r).some(k=>!['version','commandId','operation','status','createdAt','completedAt','replayed','executed','reason','result','diagnosticReceipt'].includes(k))||r.version!==1||r.commandId!==commandId||r.operation!==operation||!['succeeded','refused','unknown'].includes(r.status)||r.replayed!==false||!Number.isFinite(r.createdAt)||r.createdAt<0)return fail();
+ if('diagnosticReceipt' in r&&(r.status==='succeeded'||typeof r.diagnosticReceipt!=='string'||r.diagnosticReceipt.length!==44||!/^startup-[a-f0-9]{32}\.log$/.test(r.diagnosticReceipt)))return fail();
  if(r.status==='unknown'){
   if(['completedAt','executed','reason','result'].some(k=>k in r))return fail();
  }else{
