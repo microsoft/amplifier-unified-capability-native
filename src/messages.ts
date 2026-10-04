@@ -1,9 +1,10 @@
 /** Optional account-bound passive native message metadata. No session/worker admission. */
+import {nativeRefusal} from './refusals.js';
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {Readable,Writable,Transform} from 'node:stream';
 import {ClientSideConnection,ndJsonStream} from '@agentclientprotocol/sdk';
 import type {Context,Json,RecordValue} from './index.js';
-import {validateServiceRelease,serviceIdentity} from './service-lifecycle.js';
+import {validateServiceRelease,serviceIdentity,evidenceKey} from './service-lifecycle.js';
 import type {AdminFenceContext,AdminReleaseProof,AdminServiceReleaseProof} from './admin.js';
 const KEY='amplifier.dev/messagePrincipal',EMOJI=['👍','❤️','😂','🎉','😮','😢','👎','✅'];
 const refused=(message:string)=>Object.assign(Error(message),{data:{executed:false,replayed:false,reason:'message-authority-unavailable'}});
@@ -21,7 +22,8 @@ export interface MessageOptions {
 }
 export class MessageConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<boolean>;private closed=false;
- private metadata?:Json;private calls=0;private held?:Readonly<AdminFenceContext>;private uncertain=false;
+ private metadata?:Json;private calls=0;private held?:{context:Readonly<AdminFenceContext>;phase:'held'|'unknown'};private uncertain=false;
+ private releases=new Map<string,string>();
  private bindings=new Map<string,{scope:string;cwd:string;work:Promise<void>}>();
  private scopes=new Map<string,{scope:string;cwd:string}>();private listeners=new Set<(scope:string,value:Json)=>void>();
  constructor(private options:MessageOptions){
@@ -35,17 +37,47 @@ export class MessageConnection {
  capabilities=async():Promise<Json|undefined>=>this.tracked(async()=>await this.start()?structuredClone(this.metadata):undefined);
  activity=()=>({calls:this.calls,intakeClosed:!!this.held||this.uncertain||this.closed,uncertain:this.uncertain,closed:this.closed});
  private async tracked<T>(work:()=>Promise<T>):Promise<T>{if(this.held||this.uncertain)throw refused('Message intake is fenced; no new native request dispatched');this.calls++;try{return await work();}finally{this.calls--;if(!this.calls)try{this.options.onMayBeIdle?.();}catch{/* Advisory only. */}}}
- get quiescenceParticipant(){return{id:this.options.ownerId??'native-message-metadata',serviceStop:{version:1 as const},acquire:async(context:Readonly<AdminFenceContext>)=>{
-  if(this.calls||this.uncertain||this.closed||this.held)return null;
+ private fenceContext(value:Readonly<AdminFenceContext>):Readonly<AdminFenceContext>{
+  const context={fenceId:value.fenceId,commandId:value.commandId,purpose:value.purpose,instanceId:value.instanceId,dataScope:value.dataScope,...(value.serviceIdentity!==undefined?{serviceIdentity:serviceIdentity(value.serviceIdentity)}:{})};
   for(const key of ['fenceId','commandId','purpose','instanceId','dataScope'] as const)if(!token(context[key]))throw refused('Exact bounded message fence required');
   if(!['recovery','distribution-update','service-stop'].includes(context.purpose))throw refused('Unsupported message fence purpose');
-  if(context.purpose==='service-stop'){const identity=serviceIdentity(context.serviceIdentity);if(identity.instanceId!==context.instanceId||identity.dataScope!==context.dataScope)throw refused('Message service identity differs');}
-  this.held=structuredClone(context);const held=this.held;return{ownerId:this.options.ownerId??'native-message-metadata',fenceId:held.fenceId,release:async(outcome:'unchanged'|'ready'|'unknown',proof?:AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'})=>{
-   if(this.held!==held||this.calls)throw refused('Message fence identity changed');if(outcome==='unknown'){this.uncertain=true;return;}
-   const rollback=outcome==='unchanged'&&proof&&Object.keys(proof).length===1&&'kind'in proof&&proof.kind==='admission-refused';
-   if(!rollback){if(held.purpose==='service-stop')validateServiceRelease(held,outcome,proof);else{const p=proof as AdminReleaseProof|undefined;if(!p||p.verified!==true||p.fenceId!==held.fenceId||p.commandId!==held.commandId||p.dataScope!==held.dataScope||p.outcome!==outcome||!token(p.receiptId)||outcome==='unchanged'&&p.instanceId!==held.instanceId)throw refused('Authenticated exact message release proof required');}}
+  if(context.purpose==='service-stop'){if(!context.serviceIdentity||context.serviceIdentity.instanceId!==context.instanceId||context.serviceIdentity.dataScope!==context.dataScope)throw refused('Message service identity differs');}
+  else if(context.serviceIdentity)throw refused('Service identity requires service-stop purpose');
+  return context;
+ }
+ private releaseProof(context:Readonly<AdminFenceContext>,outcome:'unchanged'|'ready',proof:unknown){
+  if(!['unchanged','ready'].includes(outcome)||!object(proof)||Buffer.byteLength(evidenceKey(proof))>32768)throw refused('Bounded authenticated exact message release proof required');
+  if(context.purpose==='service-stop')validateServiceRelease(context,outcome,proof);
+  else{const keys=['verified','fenceId','commandId','outcome','instanceId','dataScope','receiptId'];if(Object.keys(proof).length!==keys.length||Object.keys(proof).some(k=>!keys.includes(k))||proof.verified!==true||proof.fenceId!==context.fenceId||proof.commandId!==context.commandId||proof.dataScope!==context.dataScope||proof.outcome!==outcome||!token(proof.receiptId)||!token(proof.instanceId)||(outcome==='unchanged'?proof.instanceId!==context.instanceId:proof.instanceId===context.instanceId))throw refused('Authenticated exact message release proof required');}
+ }
+ private async release(context:Readonly<AdminFenceContext>,outcome:'unchanged'|'ready'|'unknown',proof?:AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'},liveRollback=false){
+  if(this.calls||this.closed)throw refused('Message intake cannot be released while busy or closed');
+  const held=this.held,evidence=evidenceKey({context,outcome,proof}),prior=this.releases.get(context.fenceId);
+  if(Buffer.byteLength(evidence)>32768)throw refused('Message release evidence exceeds its bound');
+  if(prior!==undefined){if(prior!==evidence||held||this.uncertain)throw refused('Message release receipt binds different evidence or intake');return;}
+  if(!held||evidenceKey(held.context)!==evidenceKey(context))throw refused('Message fence identity changed');
+  if(outcome==='unknown'){held.phase='unknown';this.uncertain=true;return;}
+  try{
+   const rollback=liveRollback&&held.phase==='held'&&!this.uncertain&&outcome==='unchanged'&&proof&&Object.keys(proof).length===1&&'kind'in proof&&proof.kind==='admission-refused';
+   if(!rollback)this.releaseProof(context,outcome,proof);
+   this.releases.set(context.fenceId,evidence);if(this.releases.size>256)this.releases.delete(this.releases.keys().next().value!);
    this.held=undefined;this.uncertain=false;
-  }};
+  }catch(error){held.phase='unknown';this.uncertain=true;throw error;}
+ }
+ get quiescenceParticipant(){return{id:this.options.ownerId??'native-message-metadata',serviceStop:{version:1 as const},acquire:async(value:Readonly<AdminFenceContext>)=>{
+  if(this.calls||this.uncertain||this.closed||this.held)return null;
+  const context=this.fenceContext(value);if(this.releases.has(context.fenceId))throw refused('Completed message fence identity cannot be acquired again');this.held={context,phase:'held'};
+  return{ownerId:this.options.ownerId??'native-message-metadata',fenceId:context.fenceId,release:(outcome:'unchanged'|'ready'|'unknown',proof?:AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'})=>this.release(context,outcome,proof,true)};
+ },reconcileRelease:async(input:Readonly<AdminFenceContext>&{outcome:'unchanged'|'ready';proof:AdminReleaseProof|AdminServiceReleaseProof})=>{
+  try{
+   const context=this.fenceContext(input),outcome=input.outcome,proof=structuredClone(input.proof);
+   // Only the host's authenticated proof can settle a persisted prior fence. No
+   // process, acquire, session, history or native request proves an orphan ended.
+   this.releaseProof(context,outcome,proof);
+   if(this.calls||this.closed||this.uncertain&&!this.held)throw refused('Busy closed or independently uncertain message intake cannot reconcile');
+   if(!this.held&&!this.releases.has(context.fenceId))this.held={context,phase:'unknown'};
+   await this.release(context,outcome,proof);
+  }catch(error){if(this.held){this.held.phase='unknown';this.uncertain=true;}throw error;}
  }};}
  describe=async(context:Context):Promise<Json>=>{
   this.authority(context);const selected=await this.options.resolveSession(context);
@@ -71,7 +103,7 @@ export class MessageConnection {
  }
  private async deadline<T>(work:Promise<T>,ms:number,mutation=false):Promise<T>{
   if(!Number.isSafeInteger(ms)||ms<1||ms>120000)throw refused('Bounded native message deadline required');let timer:ReturnType<typeof setTimeout>|undefined;
-  try{return await Promise.race([work,new Promise<never>((_,reject)=>{timer=setTimeout(()=>{this.uncertain=this.uncertain||mutation;this.closed=true;this.process?.stdin.end();this.process?.kill();reject(Error('Native message response timed out; outcome unknown and no command replayed'));},ms);})]);}catch(error){const data=(error as {data?:Json})?.data;if(mutation&&!(object(data)&&data.executed===false&&data.outcome!=='unknown'&&data.applied!==true))this.uncertain=true;throw error;}finally{clearTimeout(timer);}
+  try{return await Promise.race([work,new Promise<never>((_,reject)=>{timer=setTimeout(()=>{this.uncertain=this.uncertain||mutation;this.closed=true;this.process?.stdin.end();this.process?.kill();reject(Error('Native message response timed out; outcome unknown and no command replayed'));},ms);})]);}catch(error){if(mutation&&!nativeRefusal(error))this.uncertain=true;throw error;}finally{clearTimeout(timer);}
  }
  perform=async(operation:'reaction'|'read'|'receipt',args:Json,context:Context):Promise<Json>=>this.tracked(async()=>{
   this.authority(context);if(!await this.start())throw refused('Configured peer does not negotiate message metadata');
@@ -125,7 +157,7 @@ export class MessageCapabilities {
    const result=await this.connection.perform(operation as 'reaction'|'read'|'receipt',operation==='reaction'?{...args,commandId:request.commandId}:args,context);
    if(operation==='reaction'&&result.changed===true)this.changed(request.channel,result);
    return {accepted:true,result:structuredClone(result),updates:[],invalidate:[],_meta:meta};
-  }catch(error){const data=(error as {data?:Json}).data;if(object(data)&&data.executed===false&&data.outcome!=='unknown'&&data.applied!==true)return{accepted:false,result:{...structuredClone(data),message:(error as Error).message},updates:[],invalidate:[],_meta:meta};throw error;}
+  }catch(error){const data=(error as {data?:Json}).data;if(nativeRefusal(error))return{accepted:false,result:{...structuredClone(data),message:(error as Error).message},updates:[],invalidate:[],_meta:meta};throw error;}
  };
 }
 export function createMessageCapabilities(options:MessageOptions){const connection=new MessageConnection(options),capabilities=new MessageCapabilities(connection,options.onInvalidate);return{connection,capabilities};}
