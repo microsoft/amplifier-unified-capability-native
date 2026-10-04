@@ -169,8 +169,9 @@ export class NativeCapabilities {
    s.pending++;
    try{
     const result=await performNaming(this.options,scope,args,request.commandId);
-    this.invalidate(scope,['runtime-control']);
-    return {accepted:result.applied===true,updates:[],invalidate:['runtime-control'],result,_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+    // Canonical Host title/metadata events project this result. Naming does
+    // not change the runtime catalog, so never invalidate a warming read.
+    return {accepted:result.applied===true,updates:[],invalidate:[],result,_meta:{'amplifier.dev/operation':{id:request.commandId}}};
    }finally{s.pending--;}
   }
   if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)){
