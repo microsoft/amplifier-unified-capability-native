@@ -175,3 +175,52 @@ its version 1 grant; absent or unsupported grants refuse before admin dispatch
 with `executed:false`, `replayed:false`, and `native-generations-unavailable`.
 This connection never enables the launcher grant. Maintenance permission alone
 does not grant generation operations.
+
+## Passive account-bound message metadata
+
+`createMessageCapabilities(options)` returns `{connection,capabilities}`. Trusted
+root composition supplies its gateway account and a `resolveSession(context)`
+callback returning the authorized AHP URI, immutable native session ID and canonical
+history `workingDirectory`. Client arguments contain neither actor nor paths.
+The connection sends exactly `clientCapabilities._meta['amplifier.dev/messagePrincipal']`
+`{version:1,account}` alongside native v1 in ACP initialization. This is a trusted
+spawned-stdio assertion, not independent authentication. Standalone peers without
+the binding leave the optional capability absent. Root awaits `capabilities.negotiate()`
+before composition; unsupported peers advertise no message actions or topic.
+
+The independent passive connection requires no admin grant. Its first bounded
+canonical history read binds the selected native ID before message calls. It
+never creates, loads or resumes a session, requests a worker, or calls nativeControl.
+`message.reaction` takes an exact native `reference`, supported `emoji` and desired
+boolean `present`; the public command envelope supplies the native command ID.
+`message.read` takes up to 50 selected IDs, and `message.receipt` takes the exact
+original command ID. Native owns reference freshness, metadata transactions,
+account isolation and receipts. Unknown never authorizes replay. Explicit native
+no-effect errors remain rejected capability results with their original fields.
+
+The optional session-scoped `message-metadata` topic holds only `available` and the
+last native `changedMessage` delta, with 32 cached scopes. Native notifications
+map only to an already authorized binding and invalidate that selected interest.
+Responses and notifications for the same message revision deduplicate. Read and
+receipt actions never publish changes. Every topic read validates the protected
+account and resolves only the public host mapping; negotiated quote support adds
+`quote:{available:true,referenceMeta:"amplifier.dev/history.messageReference",maxChars:4000}`
+for the verified selected engine, otherwise `quote:{available:false}`. No native
+RPC or worker is needed for this dormant-session descriptor. Clients read selected metadata explicitly;
+this topic is not a full history or annotation inventory.
+
+Both returned objects expose the same `quiescenceParticipant`, default ID
+`native-message-metadata`, plus `activity()` and `close()`. Root registers the
+participant as required and maps all message actions to it. Initialization, history
+binding and every message RPC count as in-flight work. Acquisition refuses while
+busy, closed or uncertain; a held fence blocks all new native RPCs. Exact trusted
+release proofs are required, including service-specific proofs. Unknown stays
+fenced. Close refuses in-flight or uncertain requests. `onMayBeIdle` is advisory.
+This participant proves local intake only: root must retain the genuine shared
+native-home writer authority for cross-process quiescence. No replacement
+reconciliation is claimed; a fresh connection does not prove an orphan finished.
+
+Reply selection remains client-private. This provider advertises no reply/send
+action. Only explicit Send may forward the exact flattened native reference under
+prompt `_meta['amplifier.dev/messageReply']` with the original command metadata;
+native validates and freezes the canonical bounded quote before admission.
