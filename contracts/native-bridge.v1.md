@@ -285,3 +285,37 @@ native validates and freezes the canonical bounded quote before admission.
 ### Public provider sign-in availability
 
 The existing provider-catalog resource exposes `data.setup.providerSignIn` with exactly version, available, route, provider and selectors. Version is 1, route is administration, provider is provider-openai-chatgpt. Selectors are the ordered sessionId, scope, loginId strings when available and empty otherwise. The bridge derives this descriptor from passive peer negotiation and overwrites all overlays on reads and action updates. A sessionId selector must be a nonempty string (at most 8192 characters), match the authenticated original external channel (explicit ahp-root:// maps to internal host), and accompany valid scope and loginId. It never reaches native administration. No new topic or schema service is introduced.
+
+### Pre-retirement distribution admission abort
+
+The launcher-owned `AdminConnection.quiescenceParticipant.abortAdmission` takes
+exact `commandId`, `fenceId`, `instanceId`, `dataScope`, and
+`purpose: distribution-update`, plus a separately authenticated proof with those
+same five values, `kind: distribution-admission-abort`, `verified: true`, and a
+bounded `receiptId`. The configured Host authenticates unchanged-runtime,
+pre-retirement evidence; the private Native channel validates its exact binding.
+Neither browser arguments nor ordinary release evidence grant this authority.
+
+Negotiated `admin.lifecycle.admissionAbort` is `{version:1,durable:true,receipt:true}`.
+The Native engine records original pending, acquired, or explicit no-effect
+refused attempts in reserved `native-admin-admission:v1:` rows of the existing
+maintenance `commands` journal, bound to the configured native home. It adds no
+journal, table, worker, or session. A retained intake row blocks new writes after
+process exit. Original pending/acquired attempts are never reacquired on retry.
+The private `refuseAdmission` operation records a trusted bridge refusal during
+the original no-dispatch attempt; abort never fabricates this original evidence.
+
+Abort refuses active or pending Native work and requires exclusive native writer
+ownership for settlement. A pending attempt can return `released`; only original
+explicit no-effect evidence can return `not-acquired`. Missing or legacy evidence
+stays unresolved. Original ordinary release evidence cannot substitute for the
+new abort proof. `admissionReceipt` reads the original five bound selectors without
+admitting a worker or replaying an operation.
+
+The exact result has seven fields: `ownerId`, `status: released|not-acquired`,
+`receiptId`, `commandId`, `fenceId`, `instanceId`, and `dataScope`. Native returns
+`ownerId: native-admin`; the bridge validates this identity before translating it
+through trusted `AdminOptions.ownerId`. Identical authenticated abort retries,
+including replacement processes after lost replies, return the original durable
+receipt. Different proof or context cannot reuse it. An unknown abort keeps local
+intake closed. This operation never invokes ordinary `reconcileRelease`.

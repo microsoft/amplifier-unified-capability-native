@@ -16,6 +16,8 @@ export interface AdminOptions {
  ownerId?:string;
  onMayBeIdle?:()=>void;
 }
+export interface AdminAdmissionAbortProof {kind:'distribution-admission-abort';verified:true;purpose:'distribution-update';commandId:string;fenceId:string;instanceId:string;dataScope:string;receiptId:string}
+export interface AdminAdmissionAbortReceipt {ownerId:string;status:'released'|'not-acquired';receiptId:string;commandId:string;fenceId:string;instanceId:string;dataScope:string}
 export interface AdminFenceContext {fenceId:string;commandId:string;purpose:'recovery'|'distribution-update'|'service-stop';instanceId:string;dataScope:string;serviceIdentity?:ServiceIdentity;}
 export interface AdminReleaseProof {verified:true;fenceId:string;commandId:string;outcome:'unchanged'|'ready';instanceId:string;dataScope:string;receiptId:string;}
 export type AdminServiceReleaseProof=AdminReleaseProof&ServiceReleaseFields;
@@ -29,9 +31,10 @@ const MAINTENANCE=new Set([...APP_RESETS,...CAPTURES,...CACHES,'maintenance.arti
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
- private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
+ private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private admissionAbortSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
  private providerSignInMetadata?:Json;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
+ private admissionPending=false;
  private releases=new Map<string,string>();
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
  constructor(private options:AdminOptions){}
@@ -66,6 +69,7 @@ export class AdminConnection {
    this.voicePreferencesSupported=native.admin.voice?.preferences?.version===1&&native.admin.voice?.preferences?.cas===true&&native.admin.voice?.preferences?.receipt===true;
    this.idleSupported=native.admin.lifecycle?.idleNotification===true;
    this.lifecycleSupported=native.admin.lifecycle?.version===1&&native.admin.lifecycle?.heldIntake===true&&native.admin.lifecycle?.crossProcessWriterFence===true;
+   this.admissionAbortSupported=native.admin.lifecycle?.admissionAbort?.version===1&&native.admin.lifecycle.admissionAbort.durable===true&&native.admin.lifecycle.admissionAbort.receipt===true;
    this.serviceStopSupported=native.admin.lifecycle?.serviceStop?.version===1;
   })();
   return this.starting;
@@ -154,11 +158,20 @@ export class AdminConnection {
  }
  private async acquire(context:Readonly<AdminFenceContext>){
   context={fenceId:context.fenceId,commandId:context.commandId,purpose:context.purpose,instanceId:context.instanceId,dataScope:context.dataScope,...(context.serviceIdentity!==undefined?{serviceIdentity:serviceIdentity(context.serviceIdentity)}:{})};
-  if(this.held||this.calls||this.closed)return null;
+
   for(const key of ['fenceId','commandId','purpose','instanceId','dataScope'] as const)if(typeof context[key]!=='string'||!context[key]||context[key].length>200)throw Error('Exact bounded administration quiescence context required');
   if(!['recovery','distribution-update','service-stop'].includes(context.purpose))throw Error('Unknown administration quiescence purpose');
   if(context.purpose==='service-stop'){if(!context.serviceIdentity||context.serviceIdentity.instanceId!==context.instanceId||context.serviceIdentity.dataScope!==context.dataScope)throw Error('Service identity must bind the administration context');}
   else if(context.serviceIdentity)throw Error('Service identity requires service-stop purpose');
+  if(this.held||this.calls||this.closed){
+   if(context.purpose==='distribution-update'){
+    await this.start();if(!this.admissionAbortSupported)throw Error('Durable Native admission refusal is unavailable');
+    const cwd=await this.options.resolveWorkspace({clientId:''});
+    const refused=await this.rpc('_amplifier/admin/lifecycle',{cwd,operation:'refuseAdmission',args:{...context}});
+    if(refused.acquired!==false||refused.executed!==false||refused.intakeClosed!==false)throw Error('Original Native admission refusal is unconfirmed');
+   }
+   return null;
+  }
   this.held={context:{...context},phase:'checking'};
   try{
    // Passive process startup is necessary to prove no orphan native admin writer
@@ -191,8 +204,28 @@ export class AdminConnection {
    this.releases.set(context.fenceId,evidence);if(this.releases.size>256)this.releases.delete(this.releases.keys().next().value!);this.held=undefined;
   }catch(error){held.phase='unknown';throw error;}
  }
+ /** Settle only the original pre-retirement admission; never reacquire it. */
+ async abortAdmission(input:Readonly<AdminFenceContext>&{proof:AdminAdmissionAbortProof}):Promise<AdminAdmissionAbortReceipt>{
+  const {proof,...context}=input;
+  const keys=['commandId','fenceId','instanceId','dataScope','purpose'];
+  const bounded=(v:unknown)=>typeof v==='string'&&v.length>0&&v.length<=200&&!/[\u0000-\u001f]/.test(v);
+  if(Object.keys(context).length!==5||keys.some(k=>!bounded((context as any)[k]))||context.purpose!=='distribution-update'||!proof||Object.keys(proof).sort().join(',')!==[...keys,'kind','verified','receiptId'].sort().join(',')||proof.kind!=='distribution-admission-abort'||proof.verified!==true||!bounded(proof.receiptId)||keys.some(k=>(proof as any)[k] !== (context as any)[k]))throw Error('Exact authenticated admission abort proof required');
+  if(this.admissionPending||this.calls||this.held?.phase==='checking')throw fenced();
+  if(this.held&&keys.some(k=>(this.held!.context as any)[k] !== (context as any)[k]))throw fenced();
+  // Fence before passive startup and workspace resolution can yield.
+  this.held??={context:{...context},phase:'unknown'};
+  this.admissionPending=true;
+  try{
+   await this.start();if(!this.admissionAbortSupported)throw Error('Durable Native admission abort is unavailable');
+   const cwd=await this.options.resolveWorkspace({clientId:''});
+   const result=await this.rpc('_amplifier/admin/lifecycle',{cwd,operation:'abortAdmission',args:{...context,proof}});
+   if(Object.keys(result).sort().join(',')!==['ownerId','status','receiptId','commandId','fenceId','instanceId','dataScope'].sort().join(',')||result.ownerId!=='native-admin'||!['released','not-acquired'].includes(result.status)||!bounded(result.receiptId)||['commandId','fenceId','instanceId','dataScope'].some(k=>result[k] !== (context as any)[k]))throw Error('Native admission abort receipt is unconfirmed');
+   this.held=undefined;
+   return {...result,ownerId:this.options.ownerId??'native-admin'} as AdminAdmissionAbortReceipt;
+  }catch(error){if(this.held)this.held.phase='unknown';throw error;}finally{this.admissionPending=false;}
+ }
  get quiescenceParticipant(){return {
-  id:this.options.ownerId??'native-admin',serviceStop:{version:1 as const},acquire:(context:Readonly<AdminFenceContext>)=>this.acquire(context),
+  id:this.options.ownerId??'native-admin',abortAdmission:(input:Readonly<AdminFenceContext>&{proof:AdminAdmissionAbortProof})=>this.abortAdmission(input),serviceStop:{version:1 as const},acquire:(context:Readonly<AdminFenceContext>)=>this.acquire(context),
   reconcileRelease:async(input:Readonly<AdminFenceContext>&{outcome:'unchanged'|'ready';proof:AdminReleaseProof|AdminServiceReleaseProof})=>{
    const {outcome,proof,...context}=input;
    if(context.purpose==='service-stop')validateServiceRelease(context,outcome,proof);

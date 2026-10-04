@@ -309,7 +309,7 @@ export class NativeCapabilities {
  };
 }
 export function createNativeCapabilities(options:Options){return new NativeCapabilities(options);}
-export {AdminConnection,type AdminOptions,type AdminFenceContext,type AdminReleaseProof,type AdminServiceReleaseProof} from './admin.js';
+export {AdminConnection,type AdminOptions,type AdminAdmissionAbortProof,type AdminAdmissionAbortReceipt,type AdminFenceContext,type AdminReleaseProof,type AdminServiceReleaseProof} from './admin.js';
 export type {ServiceIdentity,ServiceReleaseFields} from './service-lifecycle.js';
 
 export {PermissionsCapabilities,createPermissionsCapabilities,PERMISSION_ACTION_SCHEMAS,type PermissionsOptions} from './permissions.js';
