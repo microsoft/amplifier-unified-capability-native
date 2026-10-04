@@ -130,7 +130,7 @@ export class NativeCapabilities {
   this.inflight.set(key,pending);return copy(await pending);
  };
  /** Invalidate after a known authoritative native commit/event; never starts an eager read. */
- invalidate(scope:string,topics:Topic[]=TOPICS){const s=this.scopes.get(scopeOf(scope));if(!s)return;s.version++;for(const topic of topics){s.records.delete(topic);this.options.onInvalidate?.(topic,scope);}}
+ invalidate(scope:string,topics:Topic[]=TOPICS){const s=this.scopes.get(scopeOf(scope));if(!s)return;s.version++;for(const topic of topics){s.records.delete(topic);try{this.options.onInvalidate?.(topic,scope);}catch{/* Advisory projection failure cannot change a native outcome. */}}}
  action=async(request:Json,context:Context):Promise<{accepted:boolean;updates:RecordValue[];invalidate:string[];result:Json;_meta:Json}>=>{
   const scope=scopeOf(request.channel),args=object(request.args??{}),s=this.state(scope),topic=request.topic as Topic;
   if(request.version!==1||!TOPICS.includes(topic)||typeof request.commandId!=='string'||!request.commandId)throw Error('Valid capability version and command identity required.');
@@ -177,6 +177,8 @@ export class NativeCapabilities {
    return {accepted:true,updates:[],invalidate:[],result:{commandId:args.commandId,operation:original,receipts},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
   }
   let op=request.operation,arguments_=args,result:Json;
+  let nativeRejection:unknown;
+  const dispatched=async(work:()=>Promise<Json>)=>{try{return await work();}catch(error){nativeRejection=error;throw error;}};
   s.pending++;
   try {
    if(op==='runtime.control'){op=args.operation;arguments_=object(args.args??{});if(typeof op!=='string'||forbiddenFields.has(op))throw Error('Native operation required.');
@@ -188,7 +190,7 @@ export class NativeCapabilities {
     if(op==='configuration.apply'&&!/^[a-f0-9]{64}$/.test(arguments_.expectedConfigurationRevision??''))return {accepted:false,updates:[],invalidate:[],result:{applied:false,executed:false,reason:'configuration-revision-required',message:'Inspect and review the current mount plan before applying a configuration draft.'},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
     if(op==='bundle.switch'&&this.bundleCommands)arguments_={...arguments_,commandId:bundleCommandIds(scope,op,request.commandId).commandId};
     if(op==='configuration.apply'||['task.create','task.update','task.pause','task.resume','task.block','task.complete'].includes(op))arguments_={...arguments_,commandId:request.commandId};
-    try{result=await this.native(scope,op,arguments_);}catch(error){
+    try{result=await dispatched(()=>this.native(scope,op,arguments_));}catch(error){
      const data=(error as {data?:Json}).data;
      if(op.startsWith('task.')&&data?.reason==='task-preflight-refused'&&data.executed===false)return {accepted:false,updates:[],invalidate:[],result:{applied:false,executed:false,replayed:false,reason:data.reason,message:(error as Error).message},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
      if(op==='configuration.apply'&&data?.reason==='configuration-conflict'&&data.executed===false){
@@ -229,8 +231,8 @@ export class NativeCapabilities {
     if(['providers.login','providers.loginStatus','providers.loginCancel'].includes(op)&&scope!=='host'){
      const providers=await this.options.nativeAdmin('providers.list',{},context);const selected=providers.providers?.find((row:Json)=>row.id===args.id);
      if(selected&&selected.module!=='provider-openai-chatgpt'){const operation=op==='providers.login'?'configuration.providerLogin':op==='providers.loginStatus'?'configuration.providerLoginStatus':'configuration.providerLoginCancel';const login=await this.native(scope,operation,{provider:args.id,...(args.restart?{restart:true}:{})});result={providerId:args.id,login:{...login,providerId:args.id}};}
-     else result=await this.options.nativeAdmin(op,arguments_,context);
-    }else result=await this.options.nativeAdmin(op,arguments_,context);
+     else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
+    }else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
     if(topic==='provider-catalog'){
      const overlay=s.overlays[topic]??{};
      if(result.modelsProviderId){const id=String(result.modelsProviderId);overlay.providerCatalogs={...(overlay.providerCatalogs??{}),[id]:{models:result.models,metadata:result.providerMetadata,phase:'ready'}};}
@@ -280,7 +282,7 @@ export class NativeCapabilities {
    // An authoritative no-effect proof is a refusal, not a lost result. Never
    // infer that proof from an RPC code/message or contradict an unknown outcome.
    const data=(error as {data?:Json}).data;
-   if(['bundle.switch','bundle.save','bundle.export','bundle.default','provider.select','provider.reset'].includes(op)&&data&&typeof data==='object'&&!Array.isArray(data)&&data.executed===false&&data.outcome!=='unknown'&&data.applied!==true){
+   if(error===nativeRejection&&['bundle.switch','bundle.save','bundle.export','bundle.default','provider.select','provider.reset'].includes(op)&&data&&typeof data==='object'&&!Array.isArray(data)&&data.executed===false&&data.outcome!=='unknown'&&data.applied!==true){
     return {accepted:false,updates:[],invalidate:[],result:{applied:false,...copy(data),message:(error as Error).message},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
    }
    throw error;
