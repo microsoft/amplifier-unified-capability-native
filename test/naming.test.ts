@@ -16,7 +16,7 @@ test('advertisement requires actual peer marker and every canonical host port',a
  const f=fixture();f.options.nativeNamingCapabilities=async()=>({...marker,replayUnknown:true});const p=createNativeCapabilities(f.options);await p.actionSchemas();assert.equal(p.manifest.actions['session.naming'],undefined);
 });
 test('one-shot UI and agent call same canonical owner outside generation lock',async()=>{
- for(const origin of ['ui','agent'] as const){const f=fixture(),a=action({id:scope,regenerate:true},origin);const result=await f.provider.action(a.request,a.context);assert.equal(result.accepted,true);assert.equal(result.result.title,'Generated');assert.deepEqual(f.calls.map(c=>c[1]),['session.naming.generate','host.commit','commit','read']);assert.equal(f.calls[1][2].commandId,'original');assert.notEqual(f.calls[0][2].commandId,f.calls[2][2].commandId);assert.ok(f.calls[0][2].commandId.startsWith('naming-'));}
+ for(const origin of ['ui','agent'] as const){const f=fixture(),a=action({id:scope,regenerate:true},origin);const result=await f.provider.action(a.request,a.context);assert.equal(result.accepted,true);assert.equal(result.result.title,'Generated');assert.deepEqual(f.calls.map(c=>c[1]),['session.naming.generate','host.commit','commit','read','read']);assert.equal(f.calls[1][2].commandId,'original');assert.notEqual(f.calls[0][2].commandId,f.calls[2][2].commandId);assert.ok(f.calls[0][2].commandId.startsWith('naming-'));}
 });
 test('policy update is passive and never generates or projects a title',async()=>{
  const f=fixture(),persist=f.options.commitSessionTitle;f.options.commitSessionTitle=async(s,e,callback)=>persist(s,e,async()=>{const r=await callback();assert.equal(r.title,undefined);return r;});const p=createNativeCapabilities(f.options),a=action({sessionId:scope,automatic:false});const result=await p.action(a.request,a.context);assert.equal(result.accepted,true);assert.equal(result.result.naming.automatic,false);assert.deepEqual(result.invalidate,[]);assert.equal(result.result.titleRevision,'0');assert.ok(!f.calls.some(c=>c[1]==='session.naming.generate'));
@@ -32,4 +32,21 @@ test('historical successful native receipt cannot overwrite newer manual metadat
 });
 test('new naming generation and mutators cannot bypass canonical host via runtime.control',async()=>{
  const f=fixture();for(const operation of ['session.naming.generate','session.naming.commit','session.naming.policy','session.naming.rename'])await assert.rejects(f.provider.action({channel:scope,topic:'runtime-control',operation:'runtime.control',version:1,commandId:'original',args:{operation,args:{}}},context),/generic native controls/);assert.equal(f.calls.length,0);
+});
+
+test('cached Host receipt cannot project an old title after manual rename',async()=>{
+ const f=fixture(),persist=f.options.commitSessionTitle;let receipt:any,callbacks=0;
+ f.options.commitSessionTitle=async(s,e,callback)=>{if(receipt)return receipt;receipt=await persist(s,e,async()=>{callbacks++;return callback();});return receipt;};
+ const generate=f.options.nativeControl;let candidate:any,modelEffects=0;
+ f.options.nativeControl=async(s,o,a)=>{if(candidate)return candidate;modelEffects++;candidate=await generate(s,o,a);return candidate;};
+ const p=createNativeCapabilities(f.options),a=action({regenerate:true});
+ assert.equal((await p.action(a.request,a.context)).accepted,true);
+ assert.equal((await p.action(a.request,a.context)).accepted,true);
+ f.manual();f.calls.length=0;
+ const retry=await p.action(a.request,a.context);
+ assert.equal(callbacks,1);assert.equal(modelEffects,1);assert.equal(retry.accepted,false);
+ assert.equal(retry.result.title,'Manual');assert.equal(retry.result.naming.automatic,false);
+ assert.equal(retry.result.metadata.naming.nameRevision,f.projection().naming.nameRevision);
+ assert.equal(retry.result.titleRevision,undefined);
+ assert.deepEqual(f.calls.map(c=>c[1]),['read']);
 });

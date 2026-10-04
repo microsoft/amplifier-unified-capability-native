@@ -48,5 +48,13 @@ export async function performNaming(options:NamingPorts&{nativeControl:(scope:st
   if(!same){nativeResult={...latest,applied:false,reason:'naming-revision-conflict'};}
   return {applied:nativeResult.applied,...(mode==='generate'?{title:nativeResult.title}:{}),metadata:{naming:nativeResult.naming}};
  });
- return {...committed,...(nativeResult?{title:nativeResult.title,naming:nativeResult.naming}:{}),...(!committed.applied?{reason:nativeResult?.reason??'naming-revision-conflict'}:{})};
+ // Host may return a durable receipt without invoking persist. Reconcile on
+ // every return path, including callback-skipped exact retries.
+ const latest=await options.nativeNaming!(scope,'read',{});
+ if(!current(latest))throw Error('Canonical naming reconciliation is incomplete.');
+ const receiptNaming=committed.metadata?.naming;
+ const same=receiptNaming?.nameRevision===latest.naming.nameRevision&&receiptNaming?.policyRevision===latest.naming.policyRevision&&(mode!=='generate'||committed.title===latest.title);
+ const applied=committed.applied&&same;
+ const {titleRevision,...receipt}=committed;
+ return {...receipt,...(same?{titleRevision}:{}),applied,title:latest.title,naming:latest.naming,metadata:{...committed.metadata,naming:latest.naming},...(!applied?{reason:nativeResult?.reason??'naming-revision-conflict'}:{})};
 }
