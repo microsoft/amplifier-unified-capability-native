@@ -154,3 +154,24 @@ Confirmed completion deletes the previous review and goal get/set/clear projecti
 invalidates selected topics. It does not synthesize a `goals.get` result; clients
 may explicitly refresh that read after completion. Passive receipt inspection
 never changes current goal truth, which may have changed after the original clear.
+
+## Preview refusal and generation grant
+
+Bundle switch/save/export/default and provider select/reset errors carrying
+explicit native `executed:false`, without contradictory unknown or applied
+proof, return `accepted:false`, no updates or invalidations, and the copied native
+fields plus `applied:false` and the original message. The public command metadata
+remains unchanged. Other errors propagate unchanged; neither error wording nor
+RPC codes establish absence of effects. Refusal never triggers refresh or replay.
+
+Standard ACP model choices are opaque identifiers owned by the host configuration
+route. Clients submit advertised choices through that route. The alternate native
+provider selector forwards instance, model and effort fields without interpreting
+those opaque identifiers.
+
+`AdminConnection.generationsCapabilities()` passively returns a clone of actual
+initialized `native.admin.generations` metadata. Every `generations.*` call requires
+its version 1 grant; absent or unsupported grants refuse before admin dispatch
+with `executed:false`, `replayed:false`, and `native-generations-unavailable`.
+This connection never enables the launcher grant. Maintenance permission alone
+does not grant generation operations.
