@@ -47,12 +47,14 @@ test('queued Node admission refuses quiescence before native request, and detach
  }finally{release();await admin.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('replacement admin proves native gate availability before authenticated host reconciliation',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+test('replacement distribution admission refuses reacquisition and requires separate abort proof',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
  const dir=await mkdtemp(join(tmpdir(),'amplifier-admin-replace-')),workspace=join(dir,'workspace'),home=join(dir,'home');await mkdir(workspace);await mkdir(home);const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],workerCommand:['/impossible']}));const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace};
  const original=new AdminConnection(options),replacement=new AdminConnection(options),context={fenceId:'saved-fence',commandId:'saved-command',purpose:'distribution-update' as const,instanceId:'old-host',dataScope:'same-data'};
  try{
   assert.ok(await original.quiescenceParticipant.acquire(context));await original.close();
-  await replacement.quiescenceParticipant.reconcileRelease({...context,outcome:'ready',proof:{verified:true,...context,outcome:'ready',instanceId:'new-host',receiptId:'authenticated-supervisor-receipt'}});
+  await assert.rejects(replacement.quiescenceParticipant.reconcileRelease({...context,outcome:'ready',proof:{verified:true,...context,outcome:'ready',instanceId:'new-host',receiptId:'authenticated-supervisor-receipt'}}));
+  assert.equal((await replacement.inspectLifecycle()).intakeClosed,true);
+  await replacement.quiescenceParticipant.abortAdmission({...context,proof:{...context,kind:'distribution-admission-abort',verified:true,receiptId:'separate-pre-retirement-proof'}});
   assert.equal((await replacement.inspectLifecycle()).intakeClosed,false);await assert.rejects(stat(join(home,'projects')));
  }finally{await original.close();await replacement.close();await rm(dir,{recursive:true,force:true});}
 });
@@ -66,7 +68,9 @@ test('actual native post-response writer emits negotiated idle advisory after a 
   await admin.perform('providers.login',{flag},{clientId:'fixture'});const before=signals;assert.ok(before>0,'ordinary request completion supplies a recheck signal');
   assert.equal(await admin.quiescenceParticipant.acquire(context),null);assert.equal(signals,before);await writeFile(flag,'finish');
   for(let n=0;n<300&&signals===before;n++)await new Promise(resolve=>setTimeout(resolve,10));assert.equal(signals,before+1,'native background completion arrives without polling administration');
-  const lease=await admin.quiescenceParticipant.acquire(context);assert.ok(lease);await lease.release('unchanged',{kind:'admission-refused'});
+  assert.equal(await admin.quiescenceParticipant.acquire(context),null,'Original refusal remains conclusive on identical retry');
+  const receipt=await admin.abortAdmission({...context,proof:{...context,kind:'distribution-admission-abort',verified:true,receiptId:'idle-original-abort'}});assert.equal(receipt.status,'not-acquired');
+  const lease=await admin.quiescenceParticipant.acquire({...context,fenceId:'fresh-idle-fence',commandId:'fresh-idle-command'});assert.ok(lease);await lease.release('unchanged',{kind:'admission-refused'});
  }finally{await admin.close();await rm(dir,{recursive:true,force:true});}
 });
 
@@ -221,4 +225,59 @@ test('passive initialization deadline closes an unresponsive peer without dispat
   await assert.rejects(admin.bundleCommandCapabilities(),/initialization deadline/);assert.ok(Date.now()-started<1500);
   await assert.rejects(admin.perform('bundle.default',{scope:'workspace',bundle:'never-dispatched'},{clientId:'owned'}),/closed/);
  }finally{await admin.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('distribution abort survives lost acquisition reply and replacement with stable receipts',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'amplifier-admin-abort-')),workspace=join(dir,'workspace'),home=join(dir,'home');await mkdir(workspace);await mkdir(home);const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home,appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],workerCommand:['/impossible/admin-worker']}));
+ const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-B','-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace,ownerId:'configured-native-owner'};
+ const context={fenceId:'original-distribution-fence',commandId:'original-update',purpose:'distribution-update' as const,instanceId:'original-host',dataScope:'owned'};
+ const proof={...context,kind:'distribution-admission-abort' as const,verified:true as const,receiptId:'authenticated-abort'};
+ const original=new AdminConnection(options),replacement=new AdminConnection(options),third=new AdminConnection(options);
+ try{
+  // The native acquisition commits, then the reply is lost at the bridge boundary.
+  const rpc=(original as any).rpc.bind(original);(original as any).rpc=async(method:string,params:any)=>{const result=await rpc(method,params);if(params.operation==='acquire')throw Error('lost acquisition reply');return result;};
+  await assert.rejects(original.quiescenceParticipant.acquire(context),/lost acquisition reply/);await original.close();
+  assert.equal((await replacement.inspectLifecycle()).intakeClosed,true);
+  await assert.rejects(replacement.perform('modules.save',{module:'never',section:'tools',config:{}},{clientId:'test'}));
+  await assert.rejects(replacement.abortAdmission({...context,proof:{...proof,instanceId:'other'}}),/Exact authenticated/);
+  const replacementRpc=(replacement as any).rpc.bind(replacement);let committed:any;
+  (replacement as any).rpc=async(method:string,params:any)=>{const result=await replacementRpc(method,params);if(params.operation==='abortAdmission'){committed=result;throw Error('lost abort reply');}return result;};
+  await assert.rejects(replacement.quiescenceParticipant.abortAdmission({...context,proof}),/lost abort reply/);await replacement.close();
+  const receipt=await third.abortAdmission({...context,proof});assert.equal(receipt.status,'released');assert.equal(receipt.ownerId,'configured-native-owner');assert.equal(receipt.receiptId,committed.receiptId);
+  assert.deepEqual(await third.abortAdmission({...context,proof}),receipt);
+  await assert.rejects(third.abortAdmission({...context,proof:{...proof,receiptId:'changed'}}));
+  assert.equal((await third.inspectLifecycle()).intakeClosed,false);await assert.rejects(stat(join(home,'projects')));
+ }finally{await original.close();await replacement.close();await third.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('original local no-dispatch refusal supplies not-acquired after replacement',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'amplifier-admin-refusal-')),workspace=join(dir,'workspace');await mkdir(workspace);const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home:join(dir,'home'),appHome:join(dir,'app'),adminWorkspaceRoots:[workspace]}));
+ const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-B','-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:()=>workspace};
+ const first=new AdminConnection(options),next=new AdminConnection(options),context={fenceId:'refused-fence',commandId:'update',purpose:'distribution-update' as const,instanceId:'host',dataScope:'scope'},proof={...context,kind:'distribution-admission-abort' as const,verified:true as const,receiptId:'host-proof'};
+ try{(first as any).calls=1;assert.equal(await first.quiescenceParticipant.acquire(context),null);(first as any).calls=0;await first.close();assert.equal((await next.abortAdmission({...context,proof})).status,'not-acquired');}finally{await first.close();await next.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('completed abort receipt is passive under a newer hold and pending Node work; first settlement stays blocked',{skip:!process.env.AMPLIFIER_ACP_PYTHON},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'amplifier-admin-old-abort-')),workspace=join(dir,'workspace');await mkdir(workspace);const config=join(dir,'native.json');await writeFile(config,JSON.stringify({home:join(dir,'home'),appHome:join(dir,'app'),adminWorkspaceRoots:[workspace],workerCommand:['/impossible/admin-worker']}));
+ let unblock!:()=>void;const pending=new Promise<void>(resolve=>unblock=resolve);
+ const options={command:process.env.AMPLIFIER_ACP_PYTHON!,args:['-B','-m','amplifier_acp','--config',config],cwd:workspace,resolveWorkspace:async(context:any)=>{if(context.clientId==='pending-read')await pending;return workspace;},ownerId:'configured-native-owner'};
+ const admin=new AdminConnection(options),original={fenceId:'old-fence',commandId:'old-update',purpose:'distribution-update' as const,instanceId:'host',dataScope:'owned'},newer={...original,fenceId:'newer-fence',commandId:'newer-update'};
+ const proof=(context:typeof original)=>({...context,kind:'distribution-admission-abort' as const,verified:true as const,receiptId:'proof-'+context.fenceId});
+ try{
+  assert.ok(await admin.quiescenceParticipant.acquire(original));const receipt=await admin.abortAdmission({...original,proof:proof(original)});
+  assert.ok(await admin.quiescenceParticipant.acquire(newer));const before=await admin.inspectLifecycle();
+  assert.deepEqual(await admin.abortAdmission({...original,proof:proof(original)}),receipt);assert.deepEqual((await admin.inspectLifecycle()).lease,before.lease);
+  const read=admin.perform('voice.configuration',{},{clientId:'pending-read'});assert.equal((admin as any).calls,1);
+  assert.deepEqual(await admin.abortAdmission({...original,proof:proof(original)}),receipt);assert.equal((admin as any).calls,1);
+  await assert.rejects(admin.abortAdmission({...original,proof:{...proof(original),receiptId:'different-proof'}}));
+  await assert.rejects(admin.abortAdmission({...newer,proof:proof(newer)}));assert.deepEqual((await admin.inspectLifecycle()).lease,before.lease);
+  unblock();await read;
+  const rpc=(admin as any).rpc.bind(admin);let started!:()=>void,finish!:()=>void;const observed=new Promise<void>(resolve=>started=resolve),reply=new Promise<void>(resolve=>finish=resolve);
+  (admin as any).rpc=async(method:string,params:any)=>{const value=await rpc(method,params);if(params.operation==='abortAdmission'){started();await reply;}return value;};
+  const settling=admin.abortAdmission({...newer,proof:proof(newer)});await observed;assert.equal((admin as any).admissionPending,true);
+  assert.deepEqual(await admin.abortAdmission({...original,proof:proof(original)}),receipt);assert.equal((admin as any).admissionPending,true);assert.equal((admin as any).held.context.fenceId,newer.fenceId);
+  assert.equal((await admin.abortAdmission({...newer,proof:proof(newer)})).status,'released');assert.equal((admin as any).admissionPending,true);assert.equal((admin as any).held.context.fenceId,newer.fenceId);
+  await assert.rejects(admin.perform('modules.save',{section:'tools',module:'never',config:{}},{clientId:'test'}));finish();await settling;
+  assert.equal((await admin.inspectLifecycle()).intakeClosed,false);
+ }finally{unblock();await admin.close();await rm(dir,{recursive:true,force:true});}
 });
