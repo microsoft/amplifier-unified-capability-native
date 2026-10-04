@@ -326,3 +326,27 @@ lookup, verifies the completed state, exact original context and abort proof, an
 validates the seven-field receipt. It preserves every current hold and pending
 operation. This path cannot perform first settlement: an absent, incomplete, or
 mismatched receipt refuses while normal Node admission accounting remains busy.
+
+### Message intake durable abort
+
+Trusted composition supplies `MessageOptions.admissionDirectory` under its
+owned capability state. `message-admission.sqlite3` retains exact acquire/refusal
+and unsettled-reaction records; `message-owner-lock.sqlite3` excludes a second
+owner. Neither is a Native message or history authority. Acquisition and held
+state commit together; abort receipt and original hold removal commit together.
+A replacement keeps unsettled mutations unknown, and a missing original attempt is
+never evidence of no acquisition. All calls join in-memory admission accounting; only actual reaction dispatch
+writes durable effect markers containing exact original command/session bindings.
+Passive interruptions create no durable effect marker. Startup uses bounded
+read-only metadata preflight before writable opens and rejects partial authority
+or missing/mismatched identity without repair. The optional field keeps existing invocation
+APIs compatible, while supervised abort requires configured durable storage.
+
+The existing Host-authenticated abort proof is exact and bounded. Completed
+proof-bound receipts are passive reads, even under a newer fence, without
+clearing that fence or independent uncertainty. First settlement refuses active
+or unknown work, foreign original selectors and changed proof. Normal
+authenticated release keeps the prior cold-reconciliation contract, including
+legacy-to-new ready release; no admission attempt is synthesized by that path.
+At the Native admin participant boundary, Host-only fence projection fields are
+removed before invoking the strict five-selector Native abort API.

@@ -396,3 +396,35 @@ the original durable Native admission. Replacement connections retain unresolved
 intake; they do not reacquire an update fence. The callback returns a stable owner
 receipt with `released` or `not-acquired`; absence of original evidence remains
 unknown. See the [Native bridge contract](contracts/native-bridge.v1.md).
+
+### Durable message intake admission
+
+Set trusted `MessageOptions.admissionDirectory` to the capability-owned absolute
+directory, normally `join(stateDirectory, 'capabilities', 'native-messages')`.
+The adapter creates it with mode 0700 and retains a small SQLite intake journal
+plus a lifetime owner lock. It rejects symlink directory/database targets,
+partial journal schemas and competing owners. Bounded read-only startup checks
+require the main and all sidecars to be absent for fresh state, or an exact
+existing schema and matching required identity singleton. No identity is repaired. This journal stores admission
+identity, holds, original acquire/refusal attempts, abort receipts and unsettled
+request accounting; Native continues to own reactions, message metadata and history.
+
+`quiescenceParticipant.abortAdmission` accepts the existing authenticated
+`distribution-admission-abort` proof, binds all five canonical fence selectors,
+and atomically records its receipt and removes only its own original hold.
+Identical completed receipts remain readable under newer holds or pending work;
+changed proof, missing original attempt and unknown work refuse. An unknown
+message effect survives replacement and is never replayed. All initialization,
+history and message RPCs count as active work in memory. Only actual reaction
+dispatch creates a durable effect marker, after passive preparation, retaining
+its original command and selected-session binding. Interrupted passive reads
+create no business-unknown state or journal writes.
+
+Without this directory existing invocation and normal release APIs remain
+compatible, but durable admission abort refuses as unavailable. Supervised
+distribution composition must supply it. Authenticated normal `ready` release
+can still reconcile a legacy in-memory owner fence into the new journal, after
+strict proof and local-work checks; it creates no original admission attempt and
+does not authorize a pre-retirement abort. The Native admin participant projects
+Host fence bookkeeping to canonical selectors; direct Native abort and proof
+validation remain strict.
