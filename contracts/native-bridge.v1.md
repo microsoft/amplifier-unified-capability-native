@@ -65,6 +65,18 @@ support before exposing optional controls.
 
 ## Optional peer availability
 
+Scoped standalone sign-in selectors require the initialized administration
+peer's exact closed `providerSignIn` marker
+`{version:1,workspaceBound:true,scopedAttempts:true}`. The bridge advertises
+optional status/cancel `scope` and `loginId` fields only after validating that
+marker through trusted composition. `AdminConnection` independently checks its
+actual current peer before dispatch. Unsupported peers or resident-provider
+routes cannot silently drop these selectors into a different flow. User and
+agent callers have the same guards and preserve the native attempt ID.
+The [controlled fixtures](../test/provider-signin.integration.test.ts) qualify
+actual old-peer refusal before an administration RPC and scoped offline
+provider-owned sign-in; they do not qualify external sign-in links or accounts.
+
 Native administration remains optional for generic host/history and other engine
 access. A bounded passive initialization failure is `unavailable`, not a permanent
 unsupported claim or a rejected promise shared by unrelated schemas/controls.
@@ -269,3 +281,7 @@ Reply selection remains client-private. This provider advertises no reply/send
 action. Only explicit Send may forward the exact flattened native reference under
 prompt `_meta['amplifier.dev/messageReply']` with the original command metadata;
 native validates and freezes the canonical bounded quote before admission.
+
+### Public provider sign-in availability
+
+The existing provider-catalog resource exposes `data.setup.providerSignIn` with exactly version, available, route, provider and selectors. Version is 1, route is administration, provider is provider-openai-chatgpt. Selectors are the ordered sessionId, scope, loginId strings when available and empty otherwise. The bridge derives this descriptor from passive peer negotiation and overwrites all overlays on reads and action updates. A sessionId selector must be a nonempty string (at most 8192 characters), match the authenticated original external channel (explicit ahp-root:// maps to internal host), and accompany valid scope and loginId. It never reaches native administration. No new topic or schema service is introduced.

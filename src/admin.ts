@@ -1,4 +1,5 @@
 import {contextClearMetadata,contextClearUnavailable} from './context-clear.js';
+import {providerSignInMetadata,signInSelectors,validSignInSelectors,signInSelectorsUnavailable} from './provider-signin.js';
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {Readable,Writable,Transform} from 'node:stream';
@@ -29,6 +30,7 @@ const fenced=()=>Object.assign(Error('Native administration intake is held; no n
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
+ private providerSignInMetadata?:Json;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
  private releases=new Map<string,string>();
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
@@ -57,6 +59,7 @@ export class AdminConnection {
    this.generationsMetadata=native.admin.generations?structuredClone(native.admin.generations):undefined;
    this.contextMetadata=native.contextClear?structuredClone(native.contextClear):undefined;
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
+   this.providerSignInMetadata=native.admin.providerSignIn?structuredClone(native.admin.providerSignIn):undefined;
    this.maintenanceMetadata=native.admin.maintenance?structuredClone(native.admin.maintenance):undefined;
    this.historyImportSupported=native.admin.historyImport?.version===1&&native.admin.historyImport?.staged===true;
    this.permissionsSupported=native.admin.permissions?.version===1&&native.admin.permissions?.cas===true&&native.admin.permissions?.receipt===true;
@@ -79,6 +82,10 @@ export class AdminConnection {
  /** Passive metadata from this connection's initialized engine, not a client assertion. */
  async bundleCommandCapabilities():Promise<Json|undefined>{
   this.calls++;try{await this.start();return this.bundleMetadata?structuredClone(this.bundleMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ /** Passive scoped sign-in metadata from this connection's actual initialized peer. */
+ async providerSignInCapabilities():Promise<Json|undefined>{
+  this.calls++;try{await this.start();return this.providerSignInMetadata?structuredClone(this.providerSignInMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }
  /** Trusted composition supplies host-resolved canonical native identity and history cwd. No worker/session admission. */
  async readBundleReceipt(input:{sessionId:string;cwd:string;commandId:string}):Promise<Json>{
@@ -116,6 +123,7 @@ export class AdminConnection {
   this.calls++;
   try{
    const cwd=importWorkspace??await this.options.resolveWorkspace(context);await this.start();
+   if(signInSelectors(operation,args)&&(!validSignInSelectors(args)||!providerSignInMetadata(this.providerSignInMetadata)))throw signInSelectorsUnavailable();
    if(operation.startsWith('generations.')&&this.generationsMetadata?.version!==1)throw Object.assign(Error('Native runtime updates are unavailable for this installation; the trusted launcher must enable them.'),{data:{executed:false,replayed:false,reason:'native-generations-unavailable'}});
    if(['bundle.save','bundle.export','bundle.default'].includes(operation)&&args.commandId!==undefined&&(this.bundleMetadata?.version!==1||this.bundleMetadata?.passiveReceipt!==true))throw Object.assign(Error('Native bundle command identities are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'bundle-command-unavailable'}});
    if(operation==='bundle.receipt'&&(this.bundleMetadata?.version!==1||this.bundleMetadata?.passiveReceipt!==true))throw Object.assign(Error('Native bundle receipts are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'bundle-receipt-unavailable'}});

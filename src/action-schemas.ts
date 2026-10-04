@@ -459,34 +459,42 @@ export const ACTION_SCHEMAS:Record<string,{description:string;schema:Record<stri
     }
   },
   "providers.loginStatus": {
-    "description": "Check provider sign-in progress",
+    "description": "Check original provider sign-in progress; scoped selectors require negotiated standalone administration support",
     "schema": {
       "type": "object",
       "properties": {
         "id": {
           "type": "string",
           "maxLength": 200
-        }
+        },
+        "sessionId": {"type":"string","minLength":1,"maxLength":8192},
+        "scope": {"type":"string","enum":["global","project","local"]},
+        "loginId": {"type":"string","pattern":"^[a-f0-9]{32}$"}
       },
       "required": [
         "id"
       ],
+      "dependentRequired":{"sessionId":["scope","loginId"]},
       "additionalProperties": false
     }
   },
   "providers.loginCancel": {
-    "description": "Cancel provider sign-in",
+    "description": "Cancel original provider sign-in; scoped selectors require negotiated standalone administration support",
     "schema": {
       "type": "object",
       "properties": {
         "id": {
           "type": "string",
           "maxLength": 200
-        }
+        },
+        "sessionId": {"type":"string","minLength":1,"maxLength":8192},
+        "scope": {"type":"string","enum":["global","project","local"]},
+        "loginId": {"type":"string","pattern":"^[a-f0-9]{32}$"}
       },
       "required": [
         "id"
       ],
+      "dependentRequired":{"sessionId":["scope","loginId"]},
       "additionalProperties": false
     }
   },

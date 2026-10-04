@@ -2,6 +2,7 @@ import {nativeRefusal} from './refusals.js';
 import {contextClearCommandId,contextClearRevision,contextClearMetadata,exactContextClearReview,exactContextClearResult,exactContextReceipt,contextClearUnavailable} from './context-clear.js';
 import {bundleCommandIds,exactBundleReceipt} from './bundle-commands.js';
 import {ACTION_SCHEMAS} from './action-schemas.js';
+import {providerSignInMetadata,signInSelectors,validSignInSelectors,signInSelectorsUnavailable} from './provider-signin.js';
 /** Unified presentation capability owner. No host-private or native-engine imports. */
 export type Json=Record<string,any>;
 export type Topic='configuration'|'provider-catalog'|'bundles'|'runtime-control';
@@ -17,6 +18,8 @@ export interface Options {
  nativeBundleReceipt?:(session:string,commandId:string)=>Promise<Json>;
  /** Passive actual initialization metadata, never a caller capability assertion. */
  nativeContextClear?:()=>Promise<Json|undefined>;
+ /** Passive scoped sign-in metadata from the configured native administration peer. */
+ nativeProviderSignIn?:()=>Promise<Json|undefined>;
  /** Host binds canonical native session identity/history cwd without opening a worker. */
  nativeContextReceipt?:(session:string,commandId:string)=>Promise<Json>;
  maxScopes?:number;cacheMs?:number;clock?:()=>number;
@@ -43,6 +46,16 @@ export class NativeCapabilities {
  readonly manifest:{version:1;topics:Record<string,{uri:string;version:1;watch:true}>;actions:Record<string,{topic:string;operation:string;method:typeof METHOD}>};
  private bundleNegotiation?:Promise<boolean>;private bundleCommands=false;
  private contextNegotiation?:Promise<boolean>;private contextClear=false;
+ private signInNegotiation?:Promise<boolean>;private scopedSignIn=false;
+ providerSignInAvailability=()=>({version:1,available:this.scopedSignIn,route:'administration',provider:'provider-openai-chatgpt',selectors:this.scopedSignIn?['sessionId','scope','loginId']:[]});
+ negotiateProviderSignIn=async():Promise<boolean>=>{
+  if(!this.options.nativeProviderSignIn||!this.options.nativeAdmin)return false;
+  if(!this.signInNegotiation)this.signInNegotiation=(async()=>{
+   try{this.scopedSignIn=providerSignInMetadata(await this.options.nativeProviderSignIn!());}catch{this.scopedSignIn=false;}
+   return this.scopedSignIn;
+  })();
+  return this.signInNegotiation;
+ };
  private contextAvailability:{state:'unnegotiated'|'ready'|'unsupported'|'unavailable';reason?:string}={state:'unnegotiated'};
  contextClearAvailability=()=>copy(this.contextAvailability);
  /** Trusted root composition awaits this before synchronous manifest registration. */
@@ -88,7 +101,7 @@ export class NativeCapabilities {
   })();
   return this.bundleNegotiation;
  };
- actionSchemas=async()=>{await this.negotiateBundleCommands();await this.negotiateContextClear();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);return [name,copy(value)];}));};
+ actionSchemas=async()=>{await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.sessionId;delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;delete advertised.schema.dependentRequired;}return [name,advertised];}));};
  private now(){return(this.options.clock??Date.now)();}
  private state(scope:string){
   let value=this.scopes.get(scope);if(!value){
@@ -104,17 +117,17 @@ export class NativeCapabilities {
  private async native(scope:string,operation:string,args:Json={}) {if(scope==='host')throw Error('Select an Amplifier session for runtime controls.');return this.options.nativeControl(scope,operation,args);}
  private runtime(scope:string,s:ScopeState,result?:Json){return {runtimeControl:{[scope]:{...s.results,...result}}};}
  private async load(topic:Topic,scope:string,context:Context,s:ScopeState):Promise<Json>{
-  await this.negotiateBundleCommands();
-  if(this.bundleAvailability.state==='unavailable'&&(topic==='bundles'||topic==='provider-catalog'||topic==='configuration'&&scope==='host'))return {nativeAdministration:copy(this.bundleAvailability)};
+  await this.negotiateBundleCommands();await this.negotiateProviderSignIn();
+  if(this.bundleAvailability.state==='unavailable'&&(topic==='bundles'||topic==='provider-catalog'||topic==='configuration'&&scope==='host'))return {nativeAdministration:copy(this.bundleAvailability),...(topic==='provider-catalog'?{setup:{providerSignIn:{...this.providerSignInAvailability(),available:false,selectors:[]}}}:{})};
   if(topic==='configuration'){
    if(scope!=='host'){const value=await this.native(scope,'configuration.inspect');const {registry,...overlay}=s.overlays.configuration??{};return {configuration:{sessionId:scope,...overlay,...value},configurationRevision:s.version,...(registry?{registry}:{})};}
    if(!this.options.nativeAdmin)throw Error('This host has no native administration capability.');
    return {registry:{...await this.options.nativeAdmin('modules.list',{},context),...(s.overlays.configuration?.registry??{})},configurationRevision:s.version};
   }
   if(topic==='provider-catalog'){
-   if(!this.options.nativeAdmin&&scope!=='host'){const value=await this.native(scope,'configuration.providers');s.results['configuration.providers']=value;return {setup:{...value,...s.overlays['provider-catalog']}};}
+   if(!this.options.nativeAdmin&&scope!=='host'){const value=await this.native(scope,'configuration.providers');s.results['configuration.providers']=value;return {setup:{...value,...s.overlays['provider-catalog'],providerSignIn:this.providerSignInAvailability()}};}
    if(!this.options.nativeAdmin)throw Error('This host has no native administration capability.');
-   const setup={...s.overlays['provider-catalog'],...await this.options.nativeAdmin('providers.list',{},context)};s.overlays['provider-catalog']=setup;return {setup};
+   const setup={...s.overlays['provider-catalog'],...await this.options.nativeAdmin('providers.list',{},context)};s.overlays['provider-catalog']=setup;return {setup:{...setup,providerSignIn:this.providerSignInAvailability()}};
   }
   if(topic==='bundles'){
    if(!this.options.nativeAdmin)throw Error('This host has no native bundle catalog administration capability.');
@@ -136,7 +149,8 @@ export class NativeCapabilities {
   const scope=scopeOf(request.channel),args=object(request.args??{}),s=this.state(scope),topic=request.topic as Topic;
   if(request.version!==1||!TOPICS.includes(topic)||typeof request.commandId!=='string'||!request.commandId)throw Error('Valid capability version and command identity required.');
   if(scope!=='host'&&context.session?.uri!==scope)throw Error('Authenticated session context must match the requested scope.');
-  if(args.sessionId&&args.sessionId!==scope)throw Error('Session selector disagrees with authenticated scope.');
+  if(Object.hasOwn(args,'sessionId')&&args.sessionId!==request.channel&&!(request.channel==='host'&&args.sessionId==='ahp-root://'))throw Error('Session selector disagrees with authenticated scope.');
+  if(signInSelectors(request.operation,args)&&(!validSignInSelectors(args)||!await this.negotiateProviderSignIn()))throw signInSelectorsUnavailable();
   await this.negotiateBundleCommands();await this.negotiateContextClear();
   if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)&&!this.contextClear)throw contextClearUnavailable();
   const advertised=Object.values(this.manifest.actions).find(row=>row.operation===request.operation&&row.topic===topic);if(!advertised)throw Error('Native action not advertised.');
@@ -232,7 +246,10 @@ export class NativeCapabilities {
     if(['bundle.export','bundle.save'].includes(op)&&scope!=='host'){const config=await this.native(scope,'configuration.inspect');arguments_={...arguments_,effectiveConfig:config.plan,rootBundle:config.bundle,resources:await this.native(scope,'configuration.exportResources')};}
     if(['providers.login','providers.loginStatus','providers.loginCancel'].includes(op)&&scope!=='host'){
      const providers=await this.options.nativeAdmin('providers.list',{},context);const selected=providers.providers?.find((row:Json)=>row.id===args.id);
-     if(selected&&selected.module!=='provider-openai-chatgpt'){const operation=op==='providers.login'?'configuration.providerLogin':op==='providers.loginStatus'?'configuration.providerLoginStatus':'configuration.providerLoginCancel';const login=await dispatched(()=>this.native(scope,operation,{provider:args.id,...(args.restart?{restart:true}:{})}));result={providerId:args.id,login:{...login,providerId:args.id}};}
+     if(selected&&selected.module!=='provider-openai-chatgpt'){
+      if(signInSelectors(op,args))throw signInSelectorsUnavailable('Scoped sign-in selectors belong to the negotiated standalone administration flow; this resident provider route does not support them.');
+      const operation=op==='providers.login'?'configuration.providerLogin':op==='providers.loginStatus'?'configuration.providerLoginStatus':'configuration.providerLoginCancel';const login=await dispatched(()=>this.native(scope,operation,{provider:args.id,...(args.restart?{restart:true}:{})}));result={providerId:args.id,login:{...login,providerId:args.id}};
+     }
      else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
     }else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
     if(topic==='provider-catalog'){
@@ -275,7 +292,7 @@ export class NativeCapabilities {
     const configuration=op==='configuration.inspect'||op==='configuration.toggle'?result:op==='configuration.apply'?result.configuration:result.configuration;
     updates.push(this.record(scope,'configuration',{configuration:{sessionId:scope,...s.overlays.configuration,...(configuration??{})},configurationRevision:s.version},s));
    }
-   if(topic==='provider-catalog'&&s.overlays[topic]){const data:Json={setup:s.overlays[topic]};if(op==='configuration.defaults'){const key=JSON.stringify([args.workspace??context.session?.workingDirectory??'',args.bundle??'']);data.draftDefaults={[key]:result};}updates.push(this.record(scope,topic,data,s));}
+   if(topic==='provider-catalog'&&s.overlays[topic]){const data:Json={setup:{...s.overlays[topic],providerSignIn:this.providerSignInAvailability()}};if(op==='configuration.defaults'){const key=JSON.stringify([args.workspace??context.session?.workingDirectory??'',args.bundle??'']);data.draftDefaults={[key]:result};}updates.push(this.record(scope,topic,data,s));}
    if(topic==='configuration'&&s.overlays.configuration?.registry)updates.push(this.record(scope,topic,{registry:s.overlays.configuration.registry,configurationRevision:s.version},s));
    if(op==='bundle.save'&&s.overlays.configuration)updates.push(this.record(scope,'configuration',{configuration:{sessionId:scope,...s.overlays.configuration},configurationRevision:s.version},s));
    if(topic==='bundles'&&s.overlays.bundles)updates.push(this.record(scope,topic,s.overlays.bundles,s));

@@ -32,6 +32,23 @@ workspace remains a selector checked against the resolved trusted context.
 Administration never calls session/new. No retries occur after timeout/crash;
 the generic host owns durable admission receipts. Clients own editor drafts.
 
+For scoped standalone ChatGPT sign-in, bind
+`nativeProviderSignIn: () => admin.providerSignInCapabilities()` on that same
+genuine administration connection. Only the closed native initialize marker
+`{version:1,workspaceBound:true,scopedAttempts:true}` enables optional `scope`
+and `loginId` in the status/cancel action schemas. Missing or malformed metadata
+omits those fields and refuses explicit selectors before dispatch. The connection
+also checks its current initialized peer before any selected administration RPC;
+a stale or incorrect callback cannot grant the older peer these arguments.
+
+Clients send the original login result's scope and attempt ID only when those
+schema fields are advertised and the selected provider uses the standalone
+`provider-openai-chatgpt` administration route. Resident provider controls do not
+support these selectors and refuse them before cancellation. Legacy ID-only
+controls retain their route; the repaired native owner resolves only a unique
+flow in the same canonical workspace, and requires scope when ambiguous.
+Status/cancel does not start a flow or replay one lost across process restart.
+
 Reads are lazy, single-flight, copied, bounded to 32 cached scopes and 768 KiB per
 topic, with a 15-second TTL. Commits invalidate only records; they do not rebuild
 unrelated data. Global native administration invalidates affected cached scopes
@@ -369,3 +386,5 @@ saved/activation result. The saved bytes remain unchanged and no mutation is
 resent. A passing gap witness proves the limitation, not receipt recovery.
 The separate negotiated successor and positive fixture above supply exact native
 child receipts; they do not make legacy calls retrospectively recoverable.
+
+Scoped standalone provider sign-in is discoverable through the existing `provider-catalog` record at `data.setup.providerSignIn`: the closed descriptor is `{version:1,available:boolean,route:"administration",provider:"provider-openai-chatgpt",selectors:["sessionId","scope","loginId"]}` when supported and `selectors:[]` when unavailable. It is derived from the initialized administration peer and overwrites native/result overlays. Status and cancel must retain the original provider, original AHP channel (`ahp-root://` for host), returned scope and loginId privately; current selection cannot substitute. Supplying sessionId requires scope and loginId, must match the authenticated original channel, and is stripped before administration dispatch. Old peers omit these schema fields and refuse their presence; resident provider routes refuse them.
