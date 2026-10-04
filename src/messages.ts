@@ -33,7 +33,7 @@ export class MessageConnection {
  onUpdate(listener:(scope:string,value:Json)=>void){this.listeners.add(listener);return()=>this.listeners.delete(listener);}
  private authority(context:Context){if(context.account!==this.options.account||!context.session?.uri?.startsWith('ahp-session:/'))throw refused('Authenticated account and selected session required');}
  capabilities=async():Promise<Json|undefined>=>this.tracked(async()=>await this.start()?structuredClone(this.metadata):undefined);
- activity=()=>({calls:this.calls,intakeClosed:!!this.held,uncertain:this.uncertain,closed:this.closed});
+ activity=()=>({calls:this.calls,intakeClosed:!!this.held||this.uncertain||this.closed,uncertain:this.uncertain,closed:this.closed});
  private async tracked<T>(work:()=>Promise<T>):Promise<T>{if(this.held||this.uncertain)throw refused('Message intake is fenced; no new native request dispatched');this.calls++;try{return await work();}finally{this.calls--;if(!this.calls)try{this.options.onMayBeIdle?.();}catch{/* Advisory only. */}}}
  get quiescenceParticipant(){return{id:this.options.ownerId??'native-message-metadata',serviceStop:{version:1 as const},acquire:async(context:Readonly<AdminFenceContext>)=>{
   if(this.calls||this.uncertain||this.closed||this.held)return null;
@@ -71,7 +71,7 @@ export class MessageConnection {
  }
  private async deadline<T>(work:Promise<T>,ms:number,mutation=false):Promise<T>{
   if(!Number.isSafeInteger(ms)||ms<1||ms>120000)throw refused('Bounded native message deadline required');let timer:ReturnType<typeof setTimeout>|undefined;
-  try{return await Promise.race([work,new Promise<never>((_,reject)=>{timer=setTimeout(()=>{this.uncertain=mutation;this.closed=true;this.process?.stdin.end();this.process?.kill();reject(Error('Native message response timed out; outcome unknown and no command replayed'));},ms);})]);}catch(error){const data=(error as {data?:Json})?.data;if(mutation&&!(object(data)&&data.executed===false&&data.outcome!=='unknown'&&data.applied!==true))this.uncertain=true;throw error;}finally{clearTimeout(timer);}
+  try{return await Promise.race([work,new Promise<never>((_,reject)=>{timer=setTimeout(()=>{this.uncertain=this.uncertain||mutation;this.closed=true;this.process?.stdin.end();this.process?.kill();reject(Error('Native message response timed out; outcome unknown and no command replayed'));},ms);})]);}catch(error){const data=(error as {data?:Json})?.data;if(mutation&&!(object(data)&&data.executed===false&&data.outcome!=='unknown'&&data.applied!==true))this.uncertain=true;throw error;}finally{clearTimeout(timer);}
  }
  perform=async(operation:'reaction'|'read'|'receipt',args:Json,context:Context):Promise<Json>=>this.tracked(async()=>{
   this.authority(context);if(!await this.start())throw refused('Configured peer does not negotiate message metadata');
