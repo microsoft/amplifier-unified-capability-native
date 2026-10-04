@@ -24,7 +24,12 @@ export class MessageConnection {
  private metadata?:Json;private calls=0;private held?:Readonly<AdminFenceContext>;private uncertain=false;
  private bindings=new Map<string,{scope:string;cwd:string;work:Promise<void>}>();
  private scopes=new Map<string,{scope:string;cwd:string}>();private listeners=new Set<(scope:string,value:Json)=>void>();
- constructor(private options:MessageOptions){if(!token(options.account,512))throw refused('A trusted bounded account is required');}
+ constructor(private options:MessageOptions){
+  if(!token(options.account,512))throw refused('A trusted bounded account is required');
+  for(const [value,max]of [[options.timeoutMs??10000,120000],[options.initializationTimeoutMs??2000,10000]])if(!Number.isSafeInteger(value)||value<1||value>max)throw refused('Bounded message deadlines must be configured before dispatch');
+  if(options.ownerId!==undefined&&!token(options.ownerId))throw refused('Bounded message owner identity required');
+  this.options={...options,args:options.args?[...options.args]:undefined,env:options.env?{...options.env}:undefined};
+ }
  onUpdate(listener:(scope:string,value:Json)=>void){this.listeners.add(listener);return()=>this.listeners.delete(listener);}
  private authority(context:Context){if(context.account!==this.options.account||!context.session?.uri?.startsWith('ahp-session:/'))throw refused('Authenticated account and selected session required');}
  capabilities=async():Promise<Json|undefined>=>this.tracked(async()=>await this.start()?structuredClone(this.metadata):undefined);
