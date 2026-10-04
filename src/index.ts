@@ -276,6 +276,14 @@ export class NativeCapabilities {
    if(op==='bundle.save'&&s.overlays.configuration)updates.push(this.record(scope,'configuration',{configuration:{sessionId:scope,...s.overlays.configuration},configurationRevision:s.version},s));
    if(topic==='bundles'&&s.overlays.bundles)updates.push(this.record(scope,topic,s.overlays.bundles,s));
    return {accepted:true,updates,invalidate:invalidates.filter(t=>!updates.some(u=>u.topic===t)),result:copy(result),_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+  }catch(error){
+   // An authoritative no-effect proof is a refusal, not a lost result. Never
+   // infer that proof from an RPC code/message or contradict an unknown outcome.
+   const data=(error as {data?:Json}).data;
+   if(['bundle.switch','bundle.save','bundle.export','bundle.default','provider.select','provider.reset'].includes(op)&&data&&typeof data==='object'&&!Array.isArray(data)&&data.executed===false&&data.outcome!=='unknown'&&data.applied!==true){
+    return {accepted:false,updates:[],invalidate:[],result:{applied:false,...copy(data),message:(error as Error).message},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+   }
+   throw error;
   }finally{s.pending--;}
  };
 }

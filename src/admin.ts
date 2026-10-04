@@ -28,7 +28,7 @@ const MAINTENANCE=new Set([...APP_RESETS,...CAPTURES,...CACHES,'maintenance.arti
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
- private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private calls=0;
+ private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
  private releases=new Map<string,string>();
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
@@ -54,6 +54,7 @@ export class AdminConnection {
 
    const native=init.agentCapabilities?._meta?.['amplifier.dev/native'] as Json|undefined;
    if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Object.assign(Error('Agent has no launcher-enabled native administration v1 capability.'),{data:{executed:false,replayed:false,reason:'native-admin-unavailable'}});}
+   this.generationsMetadata=native.admin.generations?structuredClone(native.admin.generations):undefined;
    this.contextMetadata=native.contextClear?structuredClone(native.contextClear):undefined;
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
    this.maintenanceMetadata=native.admin.maintenance?structuredClone(native.admin.maintenance):undefined;
@@ -88,6 +89,10 @@ export class AdminConnection {
    return await this.rpc('_amplifier/bundle/receipt',{sessionId:input.sessionId,cwd:input.cwd,commandId:input.commandId});
   }finally{this.calls--;if(!this.calls)this.idle();}
  }
+ /** Actual trusted launcher generation-maintenance grant; never grants it implicitly. */
+ async generationsCapabilities():Promise<Json|undefined>{
+  this.calls++;try{await this.start();return this.generationsMetadata?structuredClone(this.generationsMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
  /** Read the initialized peer metadata without a worker/session admission. */
  async contextClearCapabilities():Promise<Json|undefined>{
   this.calls++;try{await this.start();return this.contextMetadata?structuredClone(this.contextMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
@@ -111,6 +116,7 @@ export class AdminConnection {
   this.calls++;
   try{
    const cwd=importWorkspace??await this.options.resolveWorkspace(context);await this.start();
+   if(operation.startsWith('generations.')&&this.generationsMetadata?.version!==1)throw Object.assign(Error('Native runtime updates are unavailable for this installation; the trusted launcher must enable them.'),{data:{executed:false,replayed:false,reason:'native-generations-unavailable'}});
    if(['bundle.save','bundle.export','bundle.default'].includes(operation)&&args.commandId!==undefined&&(this.bundleMetadata?.version!==1||this.bundleMetadata?.passiveReceipt!==true))throw Object.assign(Error('Native bundle command identities are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'bundle-command-unavailable'}});
    if(operation==='bundle.receipt'&&(this.bundleMetadata?.version!==1||this.bundleMetadata?.passiveReceipt!==true))throw Object.assign(Error('Native bundle receipts are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'bundle-receipt-unavailable'}});
    if(operation.startsWith('permissions.')){
