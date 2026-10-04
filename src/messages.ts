@@ -77,9 +77,11 @@ export class MessageConnection {
   this.authority(context);if(!await this.start())throw refused('Configured peer does not negotiate message metadata');
   const selected=await this.options.resolveSession(context);if(selected.uri!==context.session!.uri||!token(selected.nativeSessionId)||typeof selected.workingDirectory!=='string'||!selected.workingDirectory.startsWith('/'))throw refused('Trusted canonical native session binding required');
   const old=this.scopes.get(selected.nativeSessionId);if(old&&(old.scope!==selected.uri||old.cwd!==selected.workingDirectory))throw refused('Original message scope changed; preserve its receipts');
+  const pending=this.bindings.get(selected.nativeSessionId);
+  if(pending&&(pending.scope!==selected.uri||pending.cwd!==selected.workingDirectory))throw refused('Concurrent message binding differs from original scope');
+  // Original account-bound receipts do not depend on present canonical history.
+  if(operation==='receipt')return this.deadline(this.client!.extMethod('_amplifier/message/receipt',{...args,sessionId:selected.nativeSessionId}),this.options.timeoutMs??10000);
   if(!old){
-   const pending=this.bindings.get(selected.nativeSessionId);
-   if(pending&&(pending.scope!==selected.uri||pending.cwd!==selected.workingDirectory))throw refused('Concurrent message binding differs from original scope');
    if(pending)await pending.work;
    else{if(this.scopes.size+this.bindings.size>=128)throw refused('Passive message scope bound exceeded');
     const work=(async()=>{await this.deadline(this.client!.extMethod('_amplifier/history',{sessionId:selected.nativeSessionId,cwd:selected.workingDirectory,limit:1}),this.options.timeoutMs??10000);this.scopes.set(selected.nativeSessionId,{scope:selected.uri,cwd:selected.workingDirectory});})();
