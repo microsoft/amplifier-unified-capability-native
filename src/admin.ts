@@ -236,7 +236,7 @@ export class AdminConnection {
   }catch(error){if(this.held)this.held.phase='unknown';throw error;}finally{this.admissionPending=false;}
  }
  get quiescenceParticipant(){return {
-  id:this.options.ownerId??'native-admin',abortAdmission:(input:Readonly<AdminFenceContext>&{proof:AdminAdmissionAbortProof})=>this.abortAdmission(input),serviceStop:{version:1 as const},acquire:(context:Readonly<AdminFenceContext>)=>this.acquire(context),
+  id:this.options.ownerId??'native-admin',abortAdmission:(input:Readonly<AdminFenceContext>&{proof:AdminAdmissionAbortProof})=>this.abortAdmission({...Object.fromEntries(['commandId','fenceId','instanceId','dataScope','purpose'].map(key=>[key,(input as any)[key]])) as unknown as AdminFenceContext,proof:input.proof}),serviceStop:{version:1 as const},acquire:(context:Readonly<AdminFenceContext>)=>this.acquire(context),
   reconcileRelease:async(input:Readonly<AdminFenceContext>&{outcome:'unchanged'|'ready';proof:AdminReleaseProof|AdminServiceReleaseProof})=>{
    const {outcome,proof,...context}=input;
    if(context.purpose==='service-stop')validateServiceRelease(context,outcome,proof);
