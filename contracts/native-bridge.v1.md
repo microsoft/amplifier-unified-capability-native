@@ -229,11 +229,33 @@ Both returned objects expose the same `quiescenceParticipant`, default ID
 participant as required and maps all message actions to it. Initialization, history
 binding and every message RPC count as in-flight work. Acquisition refuses while
 busy, closed or uncertain; a held fence blocks all new native RPCs. Exact trusted
-release proofs are required, including service-specific proofs. Unknown stays
-fenced. Close refuses in-flight or uncertain requests. `onMayBeIdle` is advisory.
+release proofs are required, including service-specific proofs. A release marked
+unknown (or a rejected release attempt) retires the live pre-effect
+`admission-refused` rollback authority; only exact authenticated release proof can
+settle that held fence. Close refuses in-flight or uncertain requests. `onMayBeIdle` is advisory.
 This participant proves local intake only: root must retain the genuine shared
-native-home writer authority for cross-process quiescence. No replacement
-reconciliation is claimed; a fresh connection does not prove an orphan finished.
+native-home writer authority for cross-process quiescence. The host may call `reconcileRelease` after replacement only with its authenticated
+original fence context and release proof. Generic proof binds fence, command,
+scope, outcome, receipt and running instance. Service proof also binds the full
+installation, platform owner, release and original instance: ready requires a
+distinct replacement plus resume/exit/readiness receipts; unchanged requires the
+original instance and a no-effect stop-refusal receipt. A digest or caller
+assertion is not proof. The host authenticates platform evidence and retains the
+genuine native-home authority among required owners; a fresh connection proves
+only its own idle intake, never that an orphan finished.
+
+Cold reconciliation validates proof before synthesizing a local held fence. It
+performs no acquire, process startup, session/history read, native RPC or mutation.
+Busy, closed or independently uncertain local intake refuses. Completed release
+evidence is canonical, bounded to 32 KiB and cached for 256 fences: identical
+lost-reply retries succeed, changed immutable context or proof refuses. Mutable
+host phase/owner projections do not change the identity. Live
+`admission-refused` is never valid cold proof. The causal production-host test
+[message-release.test.ts](../test/message-release.test.ts) exercises persisted
+21-owner fences, live and cold lost replies, service-specific proof validation
+and unknown rollback rejection. Its other 20 owners and platform verifier are
+fixture authorities; this does not qualify live platform exit or cross-process
+native-home writer release.
 
 Reply selection remains client-private. This provider advertises no reply/send
 action. Only explicit Send may forward the exact flattened native reference under

@@ -29,6 +29,9 @@ checks does not ratify a new design or prove product adoption.
 - Preserve explicit native preflight failure evidence equally for user and agent
   callers, while keeping prior uncertain commands and post-effect ambiguity intact.
   A settled failure is not permission to replay an input or redo a tool effect.
+- Let the host settle an original held message intake fence after a restart
+  using authenticated release evidence, without replaying native work or treating
+  a replacement connection as evidence that the prior worker stopped.
 - Load only the selected topic/scope, bound resident caches, and invalidate lazily.
   Private editing state remains with the client.
 
