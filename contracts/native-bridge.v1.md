@@ -199,7 +199,12 @@ the binding leave the optional capability absent. Root awaits `capabilities.nego
 before composition; unsupported peers advertise no message actions or topic.
 
 The independent passive connection requires no admin grant. Its first bounded
-canonical history read binds the selected native ID before message calls. It
+canonical history read binds the selected native ID before reaction and metadata reads.
+An exact `message.receipt` uses the negotiated account and trusted immutable native
+ID directly, without reading current history or establishing a mutation binding.
+Committed, refused, unknown and null native receipts remain unchanged even when
+the original workspace is unavailable. A fenced or uncertain connection remains
+closed to new requests; cold receipt inspection does not clear it. It
 never creates, loads or resumes a session, requests a worker, or calls nativeControl.
 `message.reaction` takes an exact native `reference`, supported `emoji` and desired
 boolean `present`; the public command envelope supplies the native command ID.
