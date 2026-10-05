@@ -2,6 +2,7 @@ import {namingMetadata} from './naming.js';
 import {contextClearMetadata,contextClearUnavailable} from './context-clear.js';
 import {providerSignInMetadata,signInSelectors,validSignInSelectors,signInSelectorsUnavailable} from './provider-signin.js';
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
+import {once} from 'node:events';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {Readable,Writable,Transform} from 'node:stream';
 import {ClientSideConnection,ndJsonStream} from '@agentclientprotocol/sdk';
@@ -47,6 +48,8 @@ export class AdminConnection {
    const process_=this.process=spawn(this.options.command,this.options.args??[],{cwd:this.options.cwd,env:{...process.env,...this.options.env},stdio:'pipe'});
    process_.stderr.on('data',data=>{this.tail=(this.tail+String(data)).slice(-8192);});
    const lost=()=>{this.closed=true;if(this.held)this.held.phase='unknown';};process_.on('error',lost);process_.on('exit',lost);
+   // Do not construct an ACP writer until the operating system accepts the launch.
+   await once(process_,'spawn');
    let bytes=0;const guard=new Transform({transform(chunk:Buffer,_encoding,callback){for(const byte of chunk){bytes=byte===10?0:bytes+1;if(bytes>2*1024*1024){callback(Error('Native admin frame exceeds 2 MiB'));return;}}callback(null,chunk);}});
    guard.on('error',()=>process_.kill());process_.stdout.pipe(guard);
    this.client=new ClientSideConnection(()=>({extNotification:async(method,params)=>{if(method==='_amplifier/admin/idle'&&this.idleSupported&&params.version===1)this.idle();},sessionUpdate:async()=>{throw Error('Admin connection cannot own session updates.');},requestPermission:async()=>({outcome:{outcome:'cancelled' as const}})}),ndJsonStream(Writable.toWeb(process_.stdin) as WritableStream<Uint8Array>,Readable.toWeb(guard) as ReadableStream<Uint8Array>));
