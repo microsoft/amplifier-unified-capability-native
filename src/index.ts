@@ -34,7 +34,7 @@ const ADMIN:Record<string,Topic>={
  'modules.list':'configuration','modules.save':'configuration','modules.remove':'configuration','modules.validate':'configuration','sources.list':'configuration','sources.save':'configuration','sources.remove':'configuration','sources.validate':'configuration',
  'bundles.list':'bundles','bundles.add':'bundles','bundles.remove':'bundles','bundles.toggle':'bundles','bundles.reorder':'bundles','bundles.move':'bundles','bundle.discover':'bundles','bundle.export':'bundles','bundle.save':'bundles','bundle.default':'bundles','configuration.defaults':'provider-catalog'
 };
-const READS=new Set(['configuration.inspect','configuration.providers','configuration.providerModels','catalog.inspect','usage.inspect','goals.get','budget.get','mode.list','native.status','task.get','task.receipt','task.history','capacity.get','capabilities','bundle.preview']);
+const READS=new Set(['providers.credentials','providers.test','providers.testMessage','configuration.defaults','configuration.inspect','configuration.providers','configuration.providerModels','catalog.inspect','usage.inspect','goals.get','budget.get','mode.list','native.status','task.get','task.receipt','task.history','capacity.get','capabilities','bundle.preview']);
 const forbiddenFields=new Set(['__proto__','prototype','constructor']);
 function object(value:unknown):Json {if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Expected object arguments.');return value as Json;}
 function copy<T>(value:T):T {return structuredClone(value);}
@@ -126,18 +126,36 @@ export class NativeCapabilities {
  }
  private async native(scope:string,operation:string,args:Json={}) {if(scope==='host')throw Error('Select an Amplifier session for runtime controls.');return this.options.nativeControl(scope,operation,args);}
  private runtime(scope:string,s:ScopeState,result?:Json){return {runtimeControl:{[scope]:{...s.results,...result}}};}
+ private providerCatalog(s:ScopeState,value:Json=s.overlays['provider-catalog']??{}):Json {
+  // All publications of this replacement topic use the same bounded projection.
+  // These are native-resolved choices, not client drafts or a new native store.
+  const {draftDefaults,...setup}=value;
+  const data:Json={setup:{...setup,providerSignIn:this.providerSignInAvailability()}};
+  if(draftDefaults){
+   const defaults={...draftDefaults};
+   const size=()=>Buffer.byteLength(JSON.stringify({...data,draftDefaults:defaults}));
+   while(Object.keys(defaults).length>1&&size()>768*1024)delete defaults[Object.keys(defaults)[0]];
+   if(size()>768*1024){const key=Object.keys(defaults)[0];if(key)defaults[key]={phase:'error',error:'Resolved defaults exceed the bounded live projection limit.'};}
+   // Fit derived choices to the complete topic, including existing setup data.
+   // Native completed-read DTOs live only in this map, never mirrored in setup.
+   value.draftDefaults=defaults;data.draftDefaults=defaults;
+  }
+  return data;
+ }
  private async load(topic:Topic,scope:string,context:Context,s:ScopeState):Promise<Json>{
   await this.negotiateBundleCommands();await this.negotiateProviderSignIn();
-  if(this.bundleAvailability.state==='unavailable'&&(topic==='bundles'||topic==='provider-catalog'||topic==='configuration'&&scope==='host'))return {nativeAdministration:copy(this.bundleAvailability),...(topic==='provider-catalog'?{setup:{providerSignIn:{...this.providerSignInAvailability(),available:false,selectors:[]}}}:{})};
+  if(this.bundleAvailability.state==='unavailable'&&(topic==='bundles'||topic==='provider-catalog'||topic==='configuration'&&scope==='host'))return {nativeAdministration:copy(this.bundleAvailability),...(topic==='provider-catalog'?{...this.providerCatalog(s),setup:{providerSignIn:{...this.providerSignInAvailability(),available:false,selectors:[]}}}:{})};
   if(topic==='configuration'){
    if(scope!=='host'){const value=await this.native(scope,'configuration.inspect');const {registry,...overlay}=s.overlays.configuration??{};return {configuration:{sessionId:scope,...overlay,...value},configurationRevision:s.version,...(registry?{registry}:{})};}
    if(!this.options.nativeAdmin)throw Error('This host has no native administration capability.');
    return {registry:{...await this.options.nativeAdmin('modules.list',{},context),...(s.overlays.configuration?.registry??{})},configurationRevision:s.version};
   }
   if(topic==='provider-catalog'){
-   if(!this.options.nativeAdmin&&scope!=='host'){const value=await this.native(scope,'configuration.providers');s.results['configuration.providers']=value;return {setup:{...value,...s.overlays['provider-catalog'],providerSignIn:this.providerSignInAvailability()}};}
+   if(!this.options.nativeAdmin&&scope!=='host'){const value=await this.native(scope,'configuration.providers');s.results['configuration.providers']=value;return this.providerCatalog(s,{...value,...s.overlays['provider-catalog']});}
    if(!this.options.nativeAdmin)throw Error('This host has no native administration capability.');
-   const setup={...s.overlays['provider-catalog'],...await this.options.nativeAdmin('providers.list',{},context)};s.overlays['provider-catalog']=setup;return {setup:{...setup,providerSignIn:this.providerSignInAvailability()}};
+   const version=s.version,value=await this.options.nativeAdmin('providers.list',{},context);
+   if(version!==s.version)throw Error('Native configuration changed during this read; refresh the panel.');
+   s.overlays['provider-catalog']={...s.overlays['provider-catalog'],...value};return this.providerCatalog(s);
   }
   if(topic==='bundles'){
    if(!this.options.nativeAdmin)throw Error('This host has no native bundle catalog administration capability.');
@@ -154,7 +172,7 @@ export class NativeCapabilities {
   this.inflight.set(key,pending);return copy(await pending);
  };
  /** Invalidate after a known authoritative native commit/event; never starts an eager read. */
- invalidate(scope:string,topics:Topic[]=TOPICS){const s=this.scopes.get(scopeOf(scope));if(!s)return;s.version++;for(const topic of topics){s.records.delete(topic);try{this.options.onInvalidate?.(topic,scope);}catch{/* Advisory projection failure cannot change a native outcome. */}}}
+ invalidate(scope:string,topics:Topic[]=TOPICS){const s=this.scopes.get(scopeOf(scope));if(!s)return;s.version++;if(topics.some(topic=>['provider-catalog','configuration','bundles'].includes(topic))&&s.overlays['provider-catalog'])delete s.overlays['provider-catalog'].draftDefaults;for(const topic of topics){s.records.delete(topic);try{this.options.onInvalidate?.(topic,scope);}catch{/* Advisory projection failure cannot change a native outcome. */}}}
  action=async(request:Json,context:Context):Promise<{accepted:boolean;updates:RecordValue[];invalidate:string[];result:Json;_meta:Json}>=>{
   const scope=scopeOf(request.channel),args=object(request.args??{}),s=this.state(scope),topic=request.topic as Topic;
   if(request.version!==1||!TOPICS.includes(topic)||typeof request.commandId!=='string'||!request.commandId)throw Error('Valid capability version and command identity required.');
@@ -211,6 +229,7 @@ export class NativeCapabilities {
    if(ids.activationCommandId)receipts.activation=await inspect('bundle.switch',ids.activationCommandId,true);
    return {accepted:true,updates:[],invalidate:[],result:{commandId:args.commandId,operation:original,receipts},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
   }
+  const configurationVersion=s.version;
   let op=request.operation,arguments_=args,result:Json;
   let nativeRejection:unknown;
   const dispatched=async(work:()=>Promise<Json>)=>{try{return await work();}catch(error){nativeRejection=error;throw error;}};
@@ -272,6 +291,11 @@ export class NativeCapabilities {
      }
      else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
     }else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
+    if(op==='configuration.defaults'&&configurationVersion!==s.version){
+     // Keep the completed read receipt, but a newer authoritative invalidation
+     // prevents this older derived result from becoming current shared truth.
+     return {accepted:true,updates:[],invalidate:['provider-catalog'],result:copy(result),_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+    }
     if(topic==='provider-catalog'){
      const overlay=s.overlays[topic]??{};
      if(result.modelsProviderId){const id=String(result.modelsProviderId);overlay.providerCatalogs={...(overlay.providerCatalogs??{}),[id]:{models:result.models,metadata:result.providerMetadata,phase:'ready'}};}
@@ -281,7 +305,18 @@ export class NativeCapabilities {
      const operationKey=op+':'+(['providers.credentials','providers.schema'].includes(op)?args.module:args.id??'');
      overlay.operations={...(overlay.operations??{}),[operationKey]:{commandId:request.commandId,phase:'ready',action:op,id:args.id??args.module??''}};
      while(Object.keys(overlay.operations).length>64)delete overlay.operations[Object.keys(overlay.operations)[0]];
-     Object.assign(overlay,result);s.overlays[topic]=overlay;
+     if(op!=='configuration.defaults')Object.assign(overlay,result);
+     if(op==='configuration.defaults'){
+      const key=JSON.stringify([args.workspace??context.session?.workingDirectory??'',args.bundle??'']);
+      const defaults={...(overlay.draftDefaults??{})};delete defaults[key];
+      const oversized=Buffer.byteLength(JSON.stringify({[key]:result}))>512*1024;
+      // The native read completed. Keep its exact action result, but publish a
+      // bounded error for this projection instead of retaining an oversized DTO.
+      defaults[key]=oversized?{phase:'error',error:'Resolved defaults exceed the bounded live projection limit.'}:copy(result);
+      while(Object.keys(defaults).length>1&&(Object.keys(defaults).length>64||Buffer.byteLength(JSON.stringify(defaults))>512*1024))delete defaults[Object.keys(defaults)[0]];
+      overlay.draftDefaults=defaults;
+     }
+     s.overlays[topic]=overlay;
     }
     if(op==='bundle.save'&&scope!=='host'&&result.saved?.name){
      // Saving and activation are distinct effects. A settled save must stay
@@ -305,6 +340,7 @@ export class NativeCapabilities {
    }
    const changed=!result.cancelled&&!READS.has(op)&&!(op.endsWith('.list')||op.endsWith('.models')||op.endsWith('.show')||op.endsWith('.schema')||op.endsWith('.loginStatus'));
    const invalidates:Topic[]=changed?[...TOPICS]:[];
+   const defaultsInvalidated=changed&&Boolean(s.overlays['provider-catalog']?.draftDefaults);
    if(changed){if(ADMIN[op]){for(const key of this.scopes.keys())this.invalidate(key,invalidates);}else this.invalidate(scope,invalidates);}
    const updates:RecordValue[]=[];
    if(scope!=='host')updates.push(this.record(scope,'runtime-control',this.runtime(scope,s),s));
@@ -312,11 +348,11 @@ export class NativeCapabilities {
     const configuration=op==='configuration.inspect'||op==='configuration.toggle'?result:op==='configuration.apply'?result.configuration:result.configuration;
     updates.push(this.record(scope,'configuration',{configuration:{sessionId:scope,...s.overlays.configuration,...(configuration??{})},configurationRevision:s.version},s));
    }
-   if(topic==='provider-catalog'&&s.overlays[topic]){const data:Json={setup:{...s.overlays[topic],providerSignIn:this.providerSignInAvailability()}};if(op==='configuration.defaults'){const key=JSON.stringify([args.workspace??context.session?.workingDirectory??'',args.bundle??'']);data.draftDefaults={[key]:result};}updates.push(this.record(scope,topic,data,s));}
+   if(topic==='provider-catalog'&&s.overlays[topic])updates.push(this.record(scope,topic,this.providerCatalog(s),s));
    if(topic==='configuration'&&s.overlays.configuration?.registry)updates.push(this.record(scope,topic,{registry:s.overlays.configuration.registry,configurationRevision:s.version},s));
    if(op==='bundle.save'&&s.overlays.configuration)updates.push(this.record(scope,'configuration',{configuration:{sessionId:scope,...s.overlays.configuration},configurationRevision:s.version},s));
    if(topic==='bundles'&&s.overlays.bundles)updates.push(this.record(scope,topic,s.overlays.bundles,s));
-   return {accepted:true,updates,invalidate:invalidates.filter(t=>!updates.some(u=>u.topic===t)),result:copy(result),_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+   return {accepted:true,updates,invalidate:invalidates.filter(t=>(t==='provider-catalog'&&defaultsInvalidated)||!updates.some(u=>u.topic===t)),result:copy(result),_meta:{'amplifier.dev/operation':{id:request.commandId}}};
   }catch(error){
    // An authoritative no-effect proof is a refusal, not a lost result. Never
    // infer that proof from an RPC code/message or contradict an unknown outcome.
