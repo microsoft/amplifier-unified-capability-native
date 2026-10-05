@@ -63,7 +63,16 @@ remain the client/host's first choice for supported model/mode changes.
   and switch selectors live inside that selected session's `configuration`.
 - `provider-catalog`: `setup` (original provider/routing manager result), bounded
   per-provider metadata/catalogs and operation receipts; `draftDefaults` contains
-  resolved choices keyed by workspace/bundle, never a user's editing state.
+  resolved choices keyed by workspace/bundle, never a user's editing state. Every
+  provider read publishes the complete selected topic, including the latest 64
+  resolved workspace/bundle choices, evicting older choices above 512 KiB, within
+  the existing bounded scope cache and 768 KiB topic limit.
+  Authoritative provider/bundle/config invalidation (including native commits) discards derived choices; an explicit `configuration.defaults` read
+  resolves them again without retrying a mutation. A mutation that removes derived
+  choices also returns provider-catalog invalidation alongside its replacement
+  snapshot, allowing selected consumer discovery to request that read again. A
+  defaults read that races a newer invalidation retains its completed result but
+  publishes no stale defaults and requests selected provider-catalog refresh.
 - `bundles`: native `bundles`, `registeredBundles`, `bundleDefaults`,
   `bundleDiscovery` when requested. No fabricated catalog when admin is absent.
 - `runtime-control`: `runtimeControl[sessionURI][operation]`, plus the existing
