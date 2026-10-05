@@ -143,7 +143,9 @@ export class NativeCapabilities {
   if(topic==='provider-catalog'){
    if(!this.options.nativeAdmin&&scope!=='host'){const value=await this.native(scope,'configuration.providers');s.results['configuration.providers']=value;return this.providerCatalog(s,{...value,...s.overlays['provider-catalog']});}
    if(!this.options.nativeAdmin)throw Error('This host has no native administration capability.');
-   const setup={...s.overlays['provider-catalog'],...await this.options.nativeAdmin('providers.list',{},context)};s.overlays['provider-catalog']=setup;return this.providerCatalog(s);
+   const version=s.version,value=await this.options.nativeAdmin('providers.list',{},context);
+   if(version!==s.version)throw Error('Native configuration changed during this read; refresh the panel.');
+   s.overlays['provider-catalog']={...s.overlays['provider-catalog'],...value};return this.providerCatalog(s);
   }
   if(topic==='bundles'){
    if(!this.options.nativeAdmin)throw Error('This host has no native bundle catalog administration capability.');
@@ -217,7 +219,7 @@ export class NativeCapabilities {
    if(ids.activationCommandId)receipts.activation=await inspect('bundle.switch',ids.activationCommandId,true);
    return {accepted:true,updates:[],invalidate:[],result:{commandId:args.commandId,operation:original,receipts},_meta:{'amplifier.dev/operation':{id:request.commandId}}};
   }
-  const hadDraftDefaults=Boolean(s.overlays['provider-catalog']?.draftDefaults),configurationVersion=s.version;
+  const configurationVersion=s.version;
   let op=request.operation,arguments_=args,result:Json;
   let nativeRejection:unknown;
   const dispatched=async(work:()=>Promise<Json>)=>{try{return await work();}catch(error){nativeRejection=error;throw error;}};
@@ -293,10 +295,15 @@ export class NativeCapabilities {
      const operationKey=op+':'+(['providers.credentials','providers.schema'].includes(op)?args.module:args.id??'');
      overlay.operations={...(overlay.operations??{}),[operationKey]:{commandId:request.commandId,phase:'ready',action:op,id:args.id??args.module??''}};
      while(Object.keys(overlay.operations).length>64)delete overlay.operations[Object.keys(overlay.operations)[0]];
-     Object.assign(overlay,result);
+     if(op!=='configuration.defaults')Object.assign(overlay,result);
      if(op==='configuration.defaults'){
       const key=JSON.stringify([args.workspace??context.session?.workingDirectory??'',args.bundle??'']);
-      const defaults={...(overlay.draftDefaults??{})};delete defaults[key];defaults[key]=copy(result);
+      const defaults={...(overlay.draftDefaults??{})};delete defaults[key];
+      const oversized=Buffer.byteLength(JSON.stringify({[key]:result}))>512*1024;
+      // The native read completed. Keep its exact action result, but publish a
+      // bounded error for this projection instead of retaining an oversized DTO.
+      defaults[key]=oversized?{phase:'error',error:'Resolved defaults exceed the bounded live projection limit.'}:copy(result);
+      if(!oversized)Object.assign(overlay,result);
       while(Object.keys(defaults).length>1&&(Object.keys(defaults).length>64||Buffer.byteLength(JSON.stringify(defaults))>512*1024))delete defaults[Object.keys(defaults)[0]];
       overlay.draftDefaults=defaults;
      }
@@ -324,6 +331,7 @@ export class NativeCapabilities {
    }
    const changed=!result.cancelled&&!READS.has(op)&&!(op.endsWith('.list')||op.endsWith('.models')||op.endsWith('.show')||op.endsWith('.schema')||op.endsWith('.loginStatus'));
    const invalidates:Topic[]=changed?[...TOPICS]:[];
+   const defaultsInvalidated=changed&&Boolean(s.overlays['provider-catalog']?.draftDefaults);
    if(changed){if(ADMIN[op]){for(const key of this.scopes.keys())this.invalidate(key,invalidates);}else this.invalidate(scope,invalidates);}
    const updates:RecordValue[]=[];
    if(scope!=='host')updates.push(this.record(scope,'runtime-control',this.runtime(scope,s),s));
@@ -335,7 +343,6 @@ export class NativeCapabilities {
    if(topic==='configuration'&&s.overlays.configuration?.registry)updates.push(this.record(scope,topic,{registry:s.overlays.configuration.registry,configurationRevision:s.version},s));
    if(op==='bundle.save'&&s.overlays.configuration)updates.push(this.record(scope,'configuration',{configuration:{sessionId:scope,...s.overlays.configuration},configurationRevision:s.version},s));
    if(topic==='bundles'&&s.overlays.bundles)updates.push(this.record(scope,topic,s.overlays.bundles,s));
-   const defaultsInvalidated=hadDraftDefaults&&!s.overlays['provider-catalog']?.draftDefaults;
    return {accepted:true,updates,invalidate:invalidates.filter(t=>(t==='provider-catalog'&&defaultsInvalidated)||!updates.some(u=>u.topic===t)),result:copy(result),_meta:{'amplifier.dev/operation':{id:request.commandId}}};
   }catch(error){
    // An authoritative no-effect proof is a refusal, not a lost result. Never

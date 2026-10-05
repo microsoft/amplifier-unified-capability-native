@@ -77,3 +77,23 @@ test('late successful defaults read cannot overwrite newer authoritative invalid
  const result=await late;assert.equal(result.accepted,true);assert.deepEqual(result.result,defaults);assert.deepEqual(result.updates,[]);assert.deepEqual(result.invalidate,['provider-catalog']);
  assert.equal((await provider.read(read())).data.draftDefaults,undefined);
 });
+
+test('late uncached catalog load rejects without restoring invalidated defaults',async()=>{
+ let release:(value:any)=>void,begin:()=>void;const began=new Promise<void>(r=>begin=r);let hold=false;
+ const provider=createNativeCapabilities({cacheMs:0,nativeControl:async()=>({}),nativeAdmin:async(op:string)=>{if(op==='configuration.defaults')return defaults;if(hold){begin();return new Promise<any>(r=>release=r);}return {providers:[]};}});
+ await provider.action(req('configuration.defaults',{bundle:'one'}),context);hold=true;const pending=provider.read(read());await began;provider.invalidate(session,['configuration']);hold=false;release({providers:[{id:'new'}]});
+ await assert.rejects(pending,/changed during/);assert.equal((await provider.read(read())).data.draftDefaults,undefined);
+});
+test('save invalidates choices that completed while the mutation was pending',async()=>{
+ let release:(value:any)=>void,begin:()=>void;const began=new Promise<void>(r=>begin=r);
+ const provider=createNativeCapabilities({cacheMs:0,nativeControl:async()=>({}),nativeAdmin:async(op:string)=>{if(op==='providers.save'){begin();return new Promise<any>(r=>release=r);}return op==='configuration.defaults'?defaults:{providers:[]};}});
+ const pending=provider.action(req('providers.save',{id:'fixture'}),context);await began;await provider.action(req('configuration.defaults',{bundle:'one'}),context);release({providers:[]});
+ const done=await pending;assert.equal(done.updates.at(-1).data.draftDefaults,undefined);assert.ok(done.invalidate.includes('provider-catalog'));
+});
+test('oversized native completed read keeps exact result but publishes only bounded projection error',async()=>{
+ const huge={phase:'ready',content:'x'.repeat(530*1024)};let value:any=huge;
+ const provider=createNativeCapabilities({cacheMs:0,nativeControl:async()=>({}),nativeAdmin:async(op:string)=>op==='configuration.defaults'?value:{providers:[]}});
+ const done=await provider.action(req('configuration.defaults',{bundle:'one'}),context);assert.equal(done.accepted,true);assert.deepEqual(done.result,huge);assert.equal(done.updates.at(-1).data.draftDefaults[key('/owned','one')].phase,'error');
+ const data=(await provider.read(read())).data;assert.ok(Buffer.byteLength(JSON.stringify(data))<768*1024);assert.ok(Buffer.byteLength(JSON.stringify(data.draftDefaults))<512*1024);assert.equal(JSON.stringify(data).includes(huge.content),false);
+ value=defaults;const recovered=await provider.action(req('configuration.defaults',{bundle:'one'}),context);assert.deepEqual(recovered.updates.at(-1).data.draftDefaults[key('/owned','one')],defaults);
+});

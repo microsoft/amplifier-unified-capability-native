@@ -72,7 +72,11 @@ remain the client/host's first choice for supported model/mode changes.
   choices also returns provider-catalog invalidation alongside its replacement
   snapshot, allowing selected consumer discovery to request that read again. A
   defaults read that races a newer invalidation retains its completed result but
-  publishes no stale defaults and requests selected provider-catalog refresh.
+  publishes no stale defaults and requests selected provider-catalog refresh. Late
+  topic loads also reject before changing the scope projection. An oversized
+  single native defaults result retains its completed action result while the
+  shared keyed projection reports a bounded error; it is never retained as a
+  large shared settings/defaults payload.
 - `bundles`: native `bundles`, `registeredBundles`, `bundleDefaults`,
   `bundleDiscovery` when requested. No fabricated catalog when admin is absent.
 - `runtime-control`: `runtimeControl[sessionURI][operation]`, plus the existing
