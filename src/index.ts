@@ -130,7 +130,17 @@ export class NativeCapabilities {
   // All publications of this replacement topic use the same bounded projection.
   // These are native-resolved choices, not client drafts or a new native store.
   const {draftDefaults,...setup}=value;
-  return {setup:{...setup,providerSignIn:this.providerSignInAvailability()},...(draftDefaults?{draftDefaults}:{})};
+  const data:Json={setup:{...setup,providerSignIn:this.providerSignInAvailability()}};
+  if(draftDefaults){
+   const defaults={...draftDefaults};
+   const size=()=>Buffer.byteLength(JSON.stringify({...data,draftDefaults:defaults}));
+   while(Object.keys(defaults).length>1&&size()>768*1024)delete defaults[Object.keys(defaults)[0]];
+   if(size()>768*1024){const key=Object.keys(defaults)[0];if(key)defaults[key]={phase:'error',error:'Resolved defaults exceed the bounded live projection limit.'};}
+   // Fit derived choices to the complete topic, including existing setup data.
+   // Native completed-read DTOs live only in this map, never mirrored in setup.
+   value.draftDefaults=defaults;data.draftDefaults=defaults;
+  }
+  return data;
  }
  private async load(topic:Topic,scope:string,context:Context,s:ScopeState):Promise<Json>{
   await this.negotiateBundleCommands();await this.negotiateProviderSignIn();
@@ -303,7 +313,6 @@ export class NativeCapabilities {
       // The native read completed. Keep its exact action result, but publish a
       // bounded error for this projection instead of retaining an oversized DTO.
       defaults[key]=oversized?{phase:'error',error:'Resolved defaults exceed the bounded live projection limit.'}:copy(result);
-      if(!oversized)Object.assign(overlay,result);
       while(Object.keys(defaults).length>1&&(Object.keys(defaults).length>64||Buffer.byteLength(JSON.stringify(defaults))>512*1024))delete defaults[Object.keys(defaults)[0]];
       overlay.draftDefaults=defaults;
      }

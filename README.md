@@ -76,7 +76,10 @@ remain the client/host's first choice for supported model/mode changes.
   topic loads also reject before changing the scope projection. An oversized
   single native defaults result retains its completed action result while the
   shared keyed projection reports a bounded error; it is never retained as a
-  large shared settings/defaults payload.
+  large shared settings/defaults payload. Resolved defaults are kept only in the
+  keyed map, never mirrored into `setup`. The complete-topic size check evicts
+  older defaults or marks a single choice unavailable when existing setup plus
+  defaults would exceed 768 KiB; the exact completed read result stays separate.
 - `bundles`: native `bundles`, `registeredBundles`, `bundleDefaults`,
   `bundleDiscovery` when requested. No fabricated catalog when admin is absent.
 - `runtime-control`: `runtimeControl[sessionURI][operation]`, plus the existing

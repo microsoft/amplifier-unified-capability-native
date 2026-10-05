@@ -97,3 +97,18 @@ test('oversized native completed read keeps exact result but publishes only boun
  const data=(await provider.read(read())).data;assert.ok(Buffer.byteLength(JSON.stringify(data))<768*1024);assert.ok(Buffer.byteLength(JSON.stringify(data.draftDefaults))<512*1024);assert.equal(JSON.stringify(data).includes(huge.content),false);
  value=defaults;const recovered=await provider.action(req('configuration.defaults',{bundle:'one'}),context);assert.deepEqual(recovered.updates.at(-1).data.draftDefaults[key('/owned','one')],defaults);
 });
+
+for(const kib of [400,512,530,768])test('single '+kib+'KiB completed defaults remain bounded without duplicate setup payload',async()=>{
+ const large={phase:'ready',content:'x'.repeat(kib*1024)};let value:any=large;
+ const provider=createNativeCapabilities({cacheMs:0,nativeControl:async()=>({}),nativeAdmin:async(op:string)=>op==='configuration.defaults'?value:{providers:[]}});
+ const done=await provider.action(req('configuration.defaults',{bundle:'one'}),context);assert.equal(done.accepted,true);assert.deepEqual(done.result,large);
+ const data=(await provider.read(read())).data;assert.equal(data.setup.content,undefined);assert.ok(Buffer.byteLength(JSON.stringify(data))<=768*1024);assert.ok(Buffer.byteLength(JSON.stringify(data.draftDefaults))<=512*1024);
+ if(kib===400)assert.deepEqual(data.draftDefaults[key('/owned','one')],large);else assert.equal(data.draftDefaults[key('/owned','one')].phase,'error');
+ value=defaults;assert.deepEqual((await provider.action(req('configuration.defaults',{bundle:'one'}),context)).updates.at(-1).data.draftDefaults[key('/owned','one')],defaults);
+});
+test('total topic budget includes existing provider setup as well as defaults map',async()=>{
+ const large={phase:'ready',content:'x'.repeat(400*1024)},setup={providers:[],catalog:'y'.repeat(400*1024)};
+ const provider=createNativeCapabilities({cacheMs:0,nativeControl:async()=>({}),nativeAdmin:async(op:string)=>op==='configuration.defaults'?large:setup});
+ await provider.action(req('providers.list'),context);const done=await provider.action(req('configuration.defaults',{bundle:'one'}),context);
+ assert.equal(done.accepted,true);assert.deepEqual(done.result,large);const data=(await provider.read(read())).data;assert.equal(data.setup.catalog,setup.catalog);assert.equal(data.draftDefaults[key('/owned','one')].phase,'error');assert.ok(Buffer.byteLength(JSON.stringify(data))<=768*1024);
+});
