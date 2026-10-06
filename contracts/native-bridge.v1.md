@@ -354,3 +354,22 @@ authenticated release keeps the prior cold-reconciliation contract, including
 legacy-to-new ready release; no admission attempt is synthesized by that path.
 At the Native admin participant boundary, Host-only fence projection fields are
 removed before invoking the strict five-selector Native abort API.
+
+### Native administration distribution release
+
+After replacement, the administration participant uses the negotiated native
+`admin.lifecycle.reconcileRelease:{version:1,durable:true,receipt:true}` operation
+with the original five fence selectors and the host-authenticated exact release
+proof. It never reacquires an already durable distribution admission. Native
+validates the retained acquired lease, excludes actual native writers, and
+commits its release receipt and original intake removal atomically. The bridge
+keeps local intake held until that exact result is confirmed; a lost reply is
+reconciled from the original proof-bound native receipt after reconnecting.
+
+Mutable host phase and owner projections are not sent as native selectors.
+Older peers without this grant explicitly refuse cold distribution settlement
+before acquire or mutation. Missing original durable evidence is not proof of
+retirement; legacy installations require a separately qualified migration path.
+Service-stop and recovery still follow their respective contracts. Synthetic
+negotiation tests and actual installed native lost-reply tests live in
+[admin-release.test.ts](../test/admin-release.test.ts).

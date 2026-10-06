@@ -35,6 +35,7 @@ const fenced=()=>Object.assign(Error('Native administration intake is held; no n
 export class AdminConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private admissionAbortSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
  private providerSignInMetadata?:Json;private namingMetadata?:Json;
+ private durableReleaseSupported=false;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
  private admissionPending=false;
  private releases=new Map<string,string>();
@@ -75,6 +76,7 @@ export class AdminConnection {
    this.idleSupported=native.admin.lifecycle?.idleNotification===true;
    this.lifecycleSupported=native.admin.lifecycle?.version===1&&native.admin.lifecycle?.heldIntake===true&&native.admin.lifecycle?.crossProcessWriterFence===true;
    this.admissionAbortSupported=native.admin.lifecycle?.admissionAbort?.version===1&&native.admin.lifecycle.admissionAbort.durable===true&&native.admin.lifecycle.admissionAbort.receipt===true;
+   this.durableReleaseSupported=native.admin.lifecycle?.reconcileRelease?.version===1&&native.admin.lifecycle.reconcileRelease.durable===true&&native.admin.lifecycle.reconcileRelease.receipt===true;
    this.serviceStopSupported=native.admin.lifecycle?.serviceStop?.version===1;
   })();
   return this.starting;
@@ -254,11 +256,29 @@ export class AdminConnection {
  get quiescenceParticipant(){return {
   id:this.options.ownerId??'native-admin',abortAdmission:(input:Readonly<AdminFenceContext>&{proof:AdminAdmissionAbortProof})=>this.abortAdmission({...Object.fromEntries(['commandId','fenceId','instanceId','dataScope','purpose'].map(key=>[key,(input as any)[key]])) as unknown as AdminFenceContext,proof:input.proof}),serviceStop:{version:1 as const},acquire:(context:Readonly<AdminFenceContext>)=>this.acquire(context),
   reconcileRelease:async(input:Readonly<AdminFenceContext>&{outcome:'unchanged'|'ready';proof:AdminReleaseProof|AdminServiceReleaseProof})=>{
-   const {outcome,proof,...context}=input;
+   const {outcome,proof}=input,context={fenceId:input.fenceId,commandId:input.commandId,purpose:input.purpose,instanceId:input.instanceId,dataScope:input.dataScope,...(input.serviceIdentity?{serviceIdentity:input.serviceIdentity}:{})};
+   if(context.purpose==='distribution-update'&&!this.held?.leaseId){await this.reconcileDistribution(context,outcome,proof);return;}
    if(context.purpose==='service-stop')validateServiceRelease(context,outcome,proof);
    if(!this.held&&!this.releases.has(context.fenceId)){const lease=await this.acquire(context);if(!lease)throw Error('Replacement admin cannot prove native writer quiescence');}
    await this.release(context,outcome,proof);
   },
  };}
+ private async reconcileDistribution(context:Readonly<AdminFenceContext>,outcome:'unchanged'|'ready',proof:AdminReleaseProof|AdminServiceReleaseProof){
+  proof=structuredClone(proof);
+  const keys=['verified','fenceId','commandId','outcome','instanceId','dataScope','receiptId'];
+  if(Object.values(context).some(v=>typeof v!=='string'||!v||v.length>200||/[\x00-\x1f]/.test(v))||Object.keys(context).length!==5||!proof||Object.keys(proof).length!==keys.length||Object.keys(proof).some(k=>!keys.includes(k))||proof.verified!==true||proof.fenceId!==context.fenceId||proof.commandId!==context.commandId||proof.dataScope!==context.dataScope||proof.outcome!==outcome||!['ready','unchanged'].includes(outcome)||['receiptId','instanceId'].some(k=>typeof (proof as any)[k]!=='string'||!(proof as any)[k]||(proof as any)[k].length>200||/[\x00-\x1f]/.test((proof as any)[k]))||(proof.instanceId===context.instanceId)!==(outcome==='unchanged'))throw Error('Authenticated exact distribution release proof required');
+  const evidence=evidenceKey({context,outcome,proof}),prior=this.releases.get(context.fenceId);
+  if(prior){if(prior!==evidence||this.held)throw fenced();return;}
+  if(this.calls||this.admissionPending||this.closed||this.held&&evidenceKey(this.held.context)!==evidenceKey(context))throw fenced();
+  this.held={context:structuredClone(context),phase:'unknown'};this.admissionPending=true;
+  try{
+   await this.start();
+   if(!this.durableReleaseSupported)throw Error('Configured native peer cannot reconcile durable distribution admission; no acquire was dispatched');
+   const cwd=await this.options.resolveWorkspace({clientId:''});
+   const result=await this.rpc('_amplifier/admin/lifecycle',{cwd,operation:'reconcileRelease',args:{...context,outcome,proof:structuredClone(proof)}});
+   if(result.released!==true||result.reconciled!==true||result.intakeClosed!==false||result.workerStarted!==false||!result.lease?.leaseId||Object.entries(context).some(([key,value])=>result.lease[key]!==value))throw Error('Native distribution release is unconfirmed');
+   this.releases.set(context.fenceId,evidence);if(this.releases.size>256)this.releases.delete(this.releases.keys().next().value!);this.held=undefined;
+  }finally{this.admissionPending=false;}
+ }
  async close(){this.closed=true;if(this.held)this.held.phase='unknown';if(!this.process||this.process.exitCode!==null||this.process.signalCode!==null)return;this.process.stdin.end();await new Promise<void>(resolve=>{const timer=setTimeout(()=>{this.process?.kill();resolve();},3000);this.process!.once('exit',()=>{clearTimeout(timer);resolve();});});}
 }
