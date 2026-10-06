@@ -39,9 +39,12 @@ export class MessageConnection {
  }
  onUpdate(listener:(scope:string,value:Json)=>void){this.listeners.add(listener);return()=>this.listeners.delete(listener);}
  private authority(context:Context){if(context.account!==this.options.account||!context.session?.uri?.startsWith('ahp-session:/'))throw refused('Authenticated account and selected session required');}
- capabilities=async():Promise<Json|undefined>=>this.tracked(async()=>await this.start()?structuredClone(this.metadata):undefined);
+ // Replacement composition must discover this owner before the host can settle
+ // its retained fence. Only initialize metadata may cross that fence; unknown
+ // message effects and every history/message operation remain blocked.
+ capabilities=async():Promise<Json|undefined>=>this.tracked(async()=>await this.start()?structuredClone(this.metadata):undefined,true);
  activity=()=>({calls:this.calls,intakeClosed:!!this.held||this.uncertain||this.closed,uncertain:this.uncertain,closed:this.closed});
- private async tracked<T>(work:()=>Promise<T>):Promise<T>{if(this.held||this.uncertain)throw refused('Message intake is fenced; no new native request dispatched');this.calls++;try{return await work();}finally{this.calls--;if(!this.calls)try{this.options.onMayBeIdle?.();}catch{/* Advisory only. */}}}
+ private async tracked<T>(work:()=>Promise<T>,initializationOnly=false):Promise<T>{if(this.held&&!initializationOnly||this.uncertain)throw refused('Message intake is fenced; no new native request dispatched');this.calls++;try{return await work();}finally{this.calls--;if(!this.calls)try{this.options.onMayBeIdle?.();}catch{/* Advisory only. */}}}
  private fenceContext(value:Readonly<AdminFenceContext>):Readonly<AdminFenceContext>{
   const context={fenceId:value.fenceId,commandId:value.commandId,purpose:value.purpose,instanceId:value.instanceId,dataScope:value.dataScope,...(value.serviceIdentity!==undefined?{serviceIdentity:serviceIdentity(value.serviceIdentity)}:{})};
   for(const key of ['fenceId','commandId','purpose','instanceId','dataScope'] as const)if(!token(context[key]))throw refused('Exact bounded message fence required');

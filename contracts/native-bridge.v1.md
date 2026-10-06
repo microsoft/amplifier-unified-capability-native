@@ -248,7 +248,11 @@ Both returned objects expose the same `quiescenceParticipant`, default ID
 `native-message-metadata`, plus `activity()` and `close()`. Root registers the
 participant as required and maps all message actions to it. Initialization, history
 binding and every message RPC count as in-flight work. Acquisition refuses while
-busy, closed or uncertain; a held fence blocks all new native RPCs. Exact trusted
+busy, closed or uncertain; a held fence blocks history and message RPCs. Passive
+ACP initialization may still negotiate the actual owner during replacement
+composition, so the host can authenticate and settle its retained fence. It counts
+as in-flight work, never resolves a session or changes durable admission evidence,
+and remains refused when an independent message effect is unknown. Exact trusted
 release proofs are required, including service-specific proofs. A release marked
 unknown (or a rejected release attempt) retires the live pre-effect
 `admission-refused` rollback authority; only exact authenticated release proof can

@@ -4,6 +4,29 @@ const ctx={fenceId:'original-fence',commandId:'original-command',purpose:'distri
 const proof=(c=ctx)=>({...c,kind:'distribution-admission-abort' as const,verified:true as const,receiptId:'trusted-'+c.fenceId});
 const hostShape=(c=ctx)=>({...c,phase:'unknown',owners:['native-message-metadata'],observedAt:1,admissionStage:'acquiring',proof:proof(c)});
 const options=(root:string)=>({command:'/must-not-start',cwd:root,account:'owned-account',admissionDirectory:join(root,'intake'),resolveSession:async()=>{throw Error('No Native session may be resolved');}});
+test('held replacement negotiates its real owner without admitting history or settling the original fence',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'message-held-negotiate-')),peer=join(root,'peer.mjs'),audit=join(root,'audit');
+ await writeFile(peer,`import readline from 'node:readline';import{appendFileSync}from'node:fs';for await(const line of readline.createInterface({input:process.stdin})){const r=JSON.parse(line);appendFileSync(${JSON.stringify(audit)},r.method+'\\n');if(r.method!=='initialize')throw Error('No message or history RPC allowed');await new Promise(resolve=>setTimeout(resolve,30));console.log(JSON.stringify({jsonrpc:'2.0',id:r.id,result:{protocolVersion:1,agentCapabilities:{_meta:{'amplifier.dev/native':{version:1,messageInteractions:{version:1,methods:['reaction','read','receipt']}}}}}}));}`);
+ let c=new MessageConnection(options(root));
+ try{
+  assert.ok(await c.quiescenceParticipant.acquire(ctx));await c.close();
+  c=new MessageConnection({...options(root),command:process.execPath,args:[peer]});
+  const journal=join(root,'intake/message-admission.sqlite3'),before=await readFile(journal);
+  const {MessageCapabilities}=await import(process.env.AMPLIFIER_NATIVE_CAPABILITY_MODULE??'../src/index.js');const provider=new MessageCapabilities(c);
+  const negotiating=provider.negotiate();assert.equal(c.activity().calls,1);
+  await assert.rejects(c.close(),/in flight/);
+  await assert.rejects(c.quiescenceParticipant.abortAdmission(hostShape()),/active/);
+  assert.equal(await negotiating,true);assert.ok(provider.manifest.actions['message.reaction']);
+  assert.deepEqual(c.activity(),{calls:0,intakeClosed:true,uncertain:false,closed:false});
+  for(const operation of ['read','reaction','receipt'] as const)await assert.rejects(c.perform(operation,{},{}),/fenced/);
+  assert.deepEqual(await readFile(journal),before);
+  assert.equal(await provider.negotiate(),true);assert.equal(await readFile(audit,'utf8'),'initialize\n');
+  const release={verified:true as const,fenceId:ctx.fenceId,commandId:ctx.commandId,dataScope:ctx.dataScope,instanceId:'authenticated-replacement',outcome:'ready' as const,receiptId:'authenticated-ready'};
+  await c.quiescenceParticipant.reconcileRelease({...ctx,outcome:'ready',proof:release});assert.equal(c.activity().intakeClosed,false);
+  await c.close();c=new MessageConnection(options(root));assert.equal(c.activity().intakeClosed,false);
+  await c.quiescenceParticipant.reconcileRelease({...ctx,outcome:'ready',proof:release});
+ }finally{await c.close();await rm(root,{recursive:true,force:true});}
+});
 test('durable original acquired acknowledgement loss and abort acknowledgement loss reopen with exact receipts',async()=>{
  const root=await mkdtemp(join(tmpdir(),'message-abort-'));let c=new MessageConnection(options(root));
  try{assert.ok(await c.quiescenceParticipant.acquire(ctx));await c.close();c=new MessageConnection(options(root));assert.equal(c.activity().intakeClosed,true);
