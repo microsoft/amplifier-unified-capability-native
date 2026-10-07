@@ -373,3 +373,13 @@ retirement; legacy installations require a separately qualified migration path.
 Service-stop and recovery still follow their respective contracts. Synthetic
 negotiation tests and actual installed native lost-reply tests live in
 [admin-release.test.ts](../test/admin-release.test.ts).
+
+### Optional unnamed-chat previews and first-use naming preparation
+Native naming metadata may additionally advertise titlePreview and
+prepareGeneration. Only the former advertises session.titlePreview: a bounded
+passive label read scoped to the authenticated selected session, shared by user
+and agent callers. It does not rename, project a title, invalidate catalogs,
+or open a worker. Native owns transcript bounds and saved-name precedence.
+Explicit generation uses the latter to adopt missing legacy naming metadata
+before capturing Host's title revision. Existing choices remain authoritative;
+later manual edits still invalidate the original generation guard.

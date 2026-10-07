@@ -24,6 +24,7 @@ function current(value:Value):boolean {
 }
 export async function performNaming(options:NamingPorts&{nativeControl:(scope:string,operation:string,args:Value)=>Promise<Value>},scope:string,args:Value,command:string):Promise<Value> {
  const mode=namingArguments(scope,args);
+ if(mode==='generate'&&(await options.nativeNamingCapabilities!())?.prepareGeneration===true)await options.nativeNaming!(scope,'prepare',{});
  const before=await options.readSessionTitle!(scope);
  if(typeof before.titleRevision!=='string'||!before.titleRevision)throw Error('Canonical title revision is unavailable.');
  let nativeArgs:Value,operation:string;
