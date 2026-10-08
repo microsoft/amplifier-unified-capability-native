@@ -8,6 +8,16 @@ The schema owners define wire details; this document does not copy them.
 
 ## Public boundary and consumers
 
+The optional `provider-recording` topic is a host-scoped projection of Native's
+existing diagnostics configuration. Its descriptor is exactly
+`{version:1,cas:true,receipt:true,application:"next-runtime-preparation"}`.
+Only a peer that advertises this descriptor enables
+`diagnostics.recording.get/configure/receipt`. The bridge forwards the exact
+outer command identity for writes; reads and receipt inspection remain available
+under held intake. Native owns policy, CAS, receipts, and provider application.
+The existing Native administration participant owns exclusion. This bridge
+neither records model payloads itself nor claims prior calls can be recovered.
+
 `createNativeCapabilities` supplies manifest discovery, `actionSchemas`, bounded
 `read`, scoped `action`, and lazy `invalidate`. `AdminConnection` supplies trusted
 `perform`, narrow import/maintenance composition and one administration quiescence

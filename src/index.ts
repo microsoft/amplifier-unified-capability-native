@@ -378,3 +378,6 @@ export type {ServiceIdentity,ServiceReleaseFields} from './service-lifecycle.js'
 export {PermissionsCapabilities,createPermissionsCapabilities,PERMISSION_ACTION_SCHEMAS,type PermissionsOptions} from './permissions.js';
 
 export {MessageConnection,MessageCapabilities,createMessageCapabilities,MESSAGE_ACTION_SCHEMAS,type MessageOptions} from './messages.js';
+
+export {createProviderRecordingCapabilities,providerRecordingMetadata,RECORDING_SCHEMAS} from './provider-recording.js';
+export type {RecordingOptions} from './provider-recording.js';

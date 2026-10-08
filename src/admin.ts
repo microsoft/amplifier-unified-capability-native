@@ -1,3 +1,4 @@
+import {providerRecordingMetadata} from './provider-recording.js';
 import {namingMetadata} from './naming.js';
 import {contextClearMetadata,contextClearUnavailable} from './context-clear.js';
 import {providerSignInMetadata,signInSelectors,validSignInSelectors,signInSelectorsUnavailable} from './provider-signin.js';
@@ -28,12 +29,13 @@ const IMPORTS=new Set(['history.import.begin','history.import.chunk','history.im
 const CACHES=new Set(['maintenance.cache.scan','maintenance.cache.page','maintenance.cache.preview','maintenance.cache.clear']);
 const APP_RESETS=new Set(['maintenance.appReset.prepare','maintenance.appReset.apply','maintenance.appReset.inspect','maintenance.appReset.restore']);
 const CAPTURES=new Set(['maintenance.capture.acquire','maintenance.capture.inspect','maintenance.capture.release']);
-const READS=new Set(['bundle.receipt','maintenance.appReset.inspect','maintenance.capture.inspect','maintenance.cache.page','maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.manifest','permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
+const READS=new Set(['provider.recording.get','provider.recording.receipt','bundle.receipt','maintenance.appReset.inspect','maintenance.capture.inspect','maintenance.cache.page','maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.manifest','permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
 const MAINTENANCE=new Set([...APP_RESETS,...CAPTURES,...CACHES,'maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.preview','maintenance.restore.manifest','maintenance.restore.apply','maintenance.restore.reconcile','maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private admissionAbortSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
+ private recordingMetadata?:Json;
  private providerSignInMetadata?:Json;private namingMetadata?:Json;
  private durableReleaseSupported=false;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
@@ -69,6 +71,7 @@ export class AdminConnection {
    this.contextMetadata=native.contextClear?structuredClone(native.contextClear):undefined;
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
    this.providerSignInMetadata=native.admin.providerSignIn?structuredClone(native.admin.providerSignIn):undefined;
+   this.recordingMetadata=native.admin.providerRecording?structuredClone(native.admin.providerRecording):undefined;
    this.maintenanceMetadata=native.admin.maintenance?structuredClone(native.admin.maintenance):undefined;
    this.historyImportSupported=native.admin.historyImport?.version===1&&native.admin.historyImport?.staged===true;
    this.permissionsSupported=native.admin.permissions?.version===1&&native.admin.permissions?.cas===true&&native.admin.permissions?.receipt===true;
@@ -87,6 +90,9 @@ export class AdminConnection {
   finally{if(timer)clearTimeout(timer);}
  }
  /** Passive negotiated capability metadata; no runtime, archive inventory, or native settings reads. */
+ async providerRecordingCapabilities(){
+  this.calls++;try{await this.start();return providerRecordingMetadata(this.recordingMetadata)?structuredClone(this.recordingMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
  async maintenanceCapabilities():Promise<Json|undefined>{
   this.calls++;try{await this.start();return this.maintenanceMetadata?structuredClone(this.maintenanceMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }
@@ -158,6 +164,7 @@ export class AdminConnection {
    if(operation.startsWith('maintenance.capture.')&&(!CAPTURES.has(operation)||this.maintenanceMetadata?.captureScope?.version!==1))throw Object.assign(Error('Native continuous capture exclusion is unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'native-capture-unavailable'}});
    if(operation.startsWith('maintenance.cache.')&&(!CACHES.has(operation)||this.maintenanceMetadata?.cacheInventory?.version!==1))throw Object.assign(Error('Native cache inspection and reviewed clearing are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'native-cache-unavailable'}});
    if(IMPORTS.has(operation)&&!this.historyImportSupported)throw Object.assign(Error('Native history import is unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'history-import-unavailable'}});
+   if(operation.startsWith('provider.recording.')&&(!['provider.recording.get','provider.recording.configure','provider.recording.receipt'].includes(operation)||!providerRecordingMetadata(this.recordingMetadata)))throw Object.assign(Error('Provider recording policy is unavailable on the configured Native peer'),{data:{executed:false,replayed:false,reason:'provider-recording-unavailable'}});
    if(['voice.preferences.update','voice.preferences.receipt'].includes(operation)&&!this.voicePreferencesSupported)throw Object.assign(Error('Native shared voice preferences are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'voice-preferences-unavailable'}});
    const {sessionId:_,id,...values}=args;if(id!==undefined)values.id=id;
    if('home' in values||'appHome' in values||'cwd' in values&&!(permitted&&operation==='maintenance.reset.preview'))throw Error('Native administration launch authority cannot be supplied by clients.');

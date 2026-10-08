@@ -445,6 +445,27 @@ does not authorize a pre-retirement abort. The Native admin participant projects
 Host fence bookkeeping to canonical selectors; direct Native abort and proof
 validation remain strict.
 
+## Provider request recording
+
+`createProviderRecordingCapabilities` exposes a host setting only when the
+initialized Native administration peer advertises the exact recording descriptor.
+Bind `nativeCapabilities` to `admin.providerRecordingCapabilities()` and use the
+same `AdminConnection.perform` route and quiescence participant as other Native
+administration. No additional settings database, worker or writer is created.
+
+The UI and agents share `diagnostics.recording.get/configure/receipt`. Configure
+requires the saved revision, a boolean choice and the original durable action
+identity. Native preserves existing diagnostic configuration and explicit
+provider opt-outs. The choice applies at the next runtime preparation; existing
+calls cannot be reconstructed. Interrupted writes are inspected through their
+original receipts, never silently repeated. A missing or disabled Native grant
+does not advertise this control.
+
+Set `AMPLIFIER_RECORDING_PYTHON` to an independently installed Native adapter
+to run the real subprocess, replacement, held-intake and receipt checks in
+`test/provider-recording.test.ts`. These do not prove a real provider recorded
+a request; browser and provider acceptance remain separate.
+
 ## Canonical conversation naming
 
 Bind `nativeNamingCapabilities` to the genuine peer's initialize naming marker,
