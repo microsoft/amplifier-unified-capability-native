@@ -412,3 +412,26 @@ in a single scoped settings write. A configuration change invalidates pending
 image projections. Unknown write outcomes retain the original receipt and must
 not be automatically replayed. Provider generation and output artifacts remain
 separate acceptance surfaces.
+
+
+## Message intake during reviewed maintenance
+
+The message participant also implements the existing trusted `retentionHide` v1
+and `managedFiles` v1 (`preservesCanonical: true`) owner ports. These ports are
+not client actions or new Native operations. The distribution must still include
+every other configured owner and Native's canonical family lease; omitting the
+message owner or treating its proof as a Native lease is invalid.
+
+A hold closes all message reads and effects and refuses while a request is active
+or an earlier message effect is uncertain. Reference inspection requires that
+exact live hold and one immutable bounded selection. It reports no deferred work
+or external-file references for this forwarding owner: saved reaction metadata,
+quote references, original receipts and canonical histories remain Native-owned
+and are preserved by the maintenance operation. The bridge never scans or changes
+those stores. Changed selections, stale leases, and unknown or replacement holds
+cannot issue a new complete reference proof. Original trusted outcome evidence
+settles the durable hold using the existing exact release path, without replay.
+
+The causal bridge tests cover both purposes, bounded selections, active/unknown
+refusal and cold exact release. Full assembled removal/hide and deployed checks
+remain separate evidence.

@@ -50,7 +50,10 @@ test('installed native presentation preserves providers, all five module section
   assert.equal(controls,0);assert.ok(invalidations.length>0);
   await assert.rejects(stat(join(home,'projects')));
   const before=await readFile(join(workspace,'.amplifier','settings.yaml'));
-  await assert.rejects(action('provider-catalog','providers.list',{workspace:join(dir,'foreign')}),/outside launcher-authorized roots/);
+  const refused=await action('provider-catalog','providers.list',{workspace:join(dir,'foreign')});
+  assert.equal(refused.accepted,false);assert.equal(refused.result.executed,false);
+  assert.match(refused.result.message,/outside launcher-authorized roots/);
+  assert.deepEqual(refused.updates,[]);assert.deepEqual(refused.invalidate,[]);
   assert.deepEqual(await readFile(join(workspace,'.amplifier','settings.yaml')),before);
  }finally{await admin.close();await rm(dir,{recursive:true,force:true});}
 });

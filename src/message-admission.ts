@@ -27,7 +27,9 @@ function preflight(path:string,identity:string):boolean{
   return true;
  }finally{db.close();}
 }
-type Held={context:Readonly<AdminFenceContext>;phase:'held'|'unknown'};
+export type MessageFenceContext=Omit<AdminFenceContext,'purpose'>&{purpose:AdminFenceContext['purpose']|'retention-hide'|'managed-files-disposal'};
+export type MessageHeld={context:Readonly<MessageFenceContext>;phase:'held'|'unknown';selection?:string};
+type Held=MessageHeld;
 export class MessageAdmission {
  private db!:DatabaseSync;private lock:DatabaseSync;
  constructor(directory:string,private ownerId:string,account:string){
@@ -59,16 +61,16 @@ export class MessageAdmission {
  end(id:string,unknown:boolean){if(!unknown)this.db.prepare('DELETE FROM calls WHERE id=?').run(id);}
  saveHeld(value:Held){this.db.prepare('INSERT OR REPLACE INTO held VALUES(1,?)').run(evidenceKey(value));}
  releaseEvidence(id:string):string|undefined{const r=this.db.prepare('SELECT value FROM releases WHERE id=?').get(id);return r?String(r.value):undefined;}
- private attempt(context:Readonly<AdminFenceContext>):any{const r=this.db.prepare('SELECT value FROM attempts WHERE id=?').get(context.fenceId);const prior=r?JSON.parse(String(r.value)):undefined;if(prior&&evidenceKey(prior.context)!==evidenceKey(context))throw Error('Original message admission context differs');return prior;}
- acquire(context:Readonly<AdminFenceContext>,busy:boolean):boolean{
+ private attempt(context:Readonly<MessageFenceContext>):any{const r=this.db.prepare('SELECT value FROM attempts WHERE id=?').get(context.fenceId);const prior=r?JSON.parse(String(r.value)):undefined;if(prior&&evidenceKey(prior.context)!==evidenceKey(context))throw Error('Original message admission context differs');return prior;}
+ acquire(context:Readonly<MessageFenceContext>,busy:boolean):boolean{
   const prior=context.purpose==='distribution-update'?this.attempt(context):undefined;
   if(prior?.abortReceipt||prior?.state==='released'||this.releaseEvidence(context.fenceId))throw Error('Completed message admission cannot be acquired again');
   if(prior?.state==='refused')return false;
   if(this.held()||busy||this.unknownCalls()){if(context.purpose==='distribution-update'&&!prior)this.db.prepare('INSERT INTO attempts VALUES(?,?)').run(context.fenceId,evidenceKey({context,state:'refused'}));return false;}
   this.transaction(()=>{if(context.purpose==='distribution-update')this.db.prepare('INSERT INTO attempts VALUES(?,?)').run(context.fenceId,evidenceKey({context,state:'acquired'}));this.saveHeld({context,phase:'held'});});return true;
  }
- released(context:Readonly<AdminFenceContext>,evidence:string,outcome:string){this.transaction(()=>{const prior=context.purpose==='distribution-update'?this.attempt(context):undefined;if(prior){if(prior.abortReceipt)throw Error('Original message admission already aborted');this.db.prepare('UPDATE attempts SET value=? WHERE id=?').run(evidenceKey({...prior,state:outcome==='unchanged'?'released':'changed'}),context.fenceId);}this.db.prepare('INSERT INTO releases VALUES(?,?)').run(context.fenceId,evidence);this.db.exec('DELETE FROM held WHERE id=1');});}
- abort(context:Readonly<AdminFenceContext>,proof:AdminAdmissionAbortProof,blocked:boolean):AdminAdmissionAbortReceipt{
+ released(context:Readonly<MessageFenceContext>,evidence:string,outcome:string){this.transaction(()=>{const prior=context.purpose==='distribution-update'?this.attempt(context):undefined;if(prior){if(prior.abortReceipt)throw Error('Original message admission already aborted');this.db.prepare('UPDATE attempts SET value=? WHERE id=?').run(evidenceKey({...prior,state:outcome==='unchanged'?'released':'changed'}),context.fenceId);}this.db.prepare('INSERT INTO releases VALUES(?,?)').run(context.fenceId,evidence);this.db.exec('DELETE FROM held WHERE id=1');});}
+ abort(context:Readonly<MessageFenceContext>,proof:AdminAdmissionAbortProof,blocked:boolean):AdminAdmissionAbortReceipt{
   const prior=this.attempt(context),signature=evidenceKey(proof);
   if(!prior)throw Error('Original durable message admission is unconfirmed');
   if(prior.abortReceipt){if(prior.abortProof!==signature)throw Error('Message admission abort proof changed');return structuredClone(prior.abortReceipt);}
