@@ -393,3 +393,22 @@ or open a worker. Native owns transcript bounds and saved-name precedence.
 Explicit generation uses the latter to adopt missing legacy naming metadata
 before capturing Host's title revision. Existing choices remain authoritative;
 later manual edits still invalidate the original generation guard.
+
+### Optional image setup
+
+The genuine initialized administration peer may advertise the closed
+`imageSetup` marker `{version:1,catalog:"provider-image-models",preservesChat:true,exclusive:true}`.
+Only this marker enables `providers.imageModels` and `providers.configureImages`.
+The trusted composition binds `nativeImageSetup` to `admin.imageSetupCapabilities()`
+and awaits negotiation before manifest registration. Older peers advertise neither
+operation and refuse direct dispatch without effects. This does not start a worker.
+
+Image discovery is independent of the chat catalog and never infers entitlement
+or calls generation. Only the installed provider's optional public metadata and
+image catalog supply choices. Image saves use the same bounded administration
+path for users and agents, preserve chat configuration and credentials, and take
+effect in new sessions. The optional `exclusive` flag selects one image connection
+in a single scoped settings write. A configuration change invalidates pending
+image projections. Unknown write outcomes retain the original receipt and must
+not be automatically replayed. Provider generation and output artifacts remain
+separate acceptance surfaces.

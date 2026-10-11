@@ -503,3 +503,9 @@ remain available during held intake, while rename, policy and commit are fenced.
 Selectors are captured before initialization awaits. These ports do not create a
 worker, generator, journal or additional quiescence participant. The Host owns
 selected history binding, title serialization and UI projection.
+
+Image setup uses the initialized peer's optional `admin.imageSetup` grant and
+separate image-model discovery. See [the bridge contract](contracts/native-bridge.v1.md#optional-image-setup).
+`test/image-setup.test.ts` covers user/agent routing and stale catalog rejection;
+set `AMPLIFIER_ACP_PYTHON` and `AMPLIFIER_IMAGE_OLD_PYTHON` for actual installed
+peer negotiation. No image-generation request is issued by these tests.

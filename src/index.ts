@@ -1,3 +1,4 @@
+import {imageSetupMetadata,IMAGE_OPERATIONS,imageSetupUnavailable} from './image-setup.js';
 import {namingMetadata,performNaming,type NamingPorts} from './naming.js';
 import {nativeRefusal} from './refusals.js';
 import {contextClearCommandId,contextClearRevision,contextClearMetadata,exactContextClearReview,exactContextClearResult,exactContextReceipt,contextClearUnavailable} from './context-clear.js';
@@ -21,6 +22,8 @@ export interface Options extends NamingPorts {
  nativeContextClear?:()=>Promise<Json|undefined>;
  /** Passive scoped sign-in metadata from the configured native administration peer. */
  nativeProviderSignIn?:()=>Promise<Json|undefined>;
+ /** Passive image setup metadata from this initialized admin peer. */
+ nativeImageSetup?:()=>Promise<Json|undefined>;
  /** Host binds canonical native session identity/history cwd without opening a worker. */
  nativeContextReceipt?:(session:string,commandId:string)=>Promise<Json>;
  maxScopes?:number;cacheMs?:number;clock?:()=>number;
@@ -34,7 +37,7 @@ const ADMIN:Record<string,Topic>={
  'modules.list':'configuration','modules.save':'configuration','modules.remove':'configuration','modules.validate':'configuration','sources.list':'configuration','sources.save':'configuration','sources.remove':'configuration','sources.validate':'configuration',
  'bundles.list':'bundles','bundles.add':'bundles','bundles.remove':'bundles','bundles.toggle':'bundles','bundles.reorder':'bundles','bundles.move':'bundles','bundle.discover':'bundles','bundle.export':'bundles','bundle.save':'bundles','bundle.default':'bundles','configuration.defaults':'provider-catalog'
 };
-const READS=new Set(['providers.credentials','providers.test','providers.testMessage','configuration.defaults','configuration.inspect','configuration.providers','configuration.providerModels','catalog.inspect','usage.inspect','goals.get','budget.get','mode.list','native.status','task.get','task.receipt','task.history','capacity.get','capabilities','bundle.preview']);
+const READS=new Set(['providers.imageModels','providers.credentials','providers.test','providers.testMessage','configuration.defaults','configuration.inspect','configuration.providers','configuration.providerModels','catalog.inspect','usage.inspect','goals.get','budget.get','mode.list','native.status','task.get','task.receipt','task.history','capacity.get','capabilities','bundle.preview']);
 const forbiddenFields=new Set(['__proto__','prototype','constructor']);
 function object(value:unknown):Json {if(!value||typeof value!=='object'||Array.isArray(value))throw Error('Expected object arguments.');return value as Json;}
 function copy<T>(value:T):T {return structuredClone(value);}
@@ -56,6 +59,15 @@ export class NativeCapabilities {
  };
  private bundleNegotiation?:Promise<boolean>;private bundleCommands=false;
  private contextNegotiation?:Promise<boolean>;private contextClear=false;
+ private imageNegotiation?:Promise<boolean>;private imageSetup=false;
+ negotiateImageSetup=async():Promise<boolean>=>{
+  if(!this.options.nativeImageSetup||!this.options.nativeAdmin)return false;
+  if(!this.imageNegotiation)this.imageNegotiation=(async()=>{
+   try{this.imageSetup=imageSetupMetadata(await this.options.nativeImageSetup!());}catch{this.imageSetup=false;}
+   if(this.imageSetup)for(const operation of IMAGE_OPERATIONS)this.manifest.actions[operation]={topic:'provider-catalog',operation,method:METHOD};
+   return this.imageSetup;
+  })();return this.imageNegotiation;
+ };
  private signInNegotiation?:Promise<boolean>;private scopedSignIn=false;
  providerSignInAvailability=()=>({version:1,available:this.scopedSignIn,route:'administration',provider:'provider-openai-chatgpt',selectors:this.scopedSignIn?['sessionId','scope','loginId']:[]});
  negotiateProviderSignIn=async():Promise<boolean>=>{
@@ -111,7 +123,7 @@ export class NativeCapabilities {
   })();
   return this.bundleNegotiation;
  };
- actionSchemas=async()=>{await this.negotiateNaming();await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.sessionId;delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;delete advertised.schema.dependentRequired;}return [name,advertised];}));};
+ actionSchemas=async()=>{await this.negotiateNaming();await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();await this.negotiateImageSetup();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.sessionId;delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;delete advertised.schema.dependentRequired;}return [name,advertised];}));};
  private now(){return(this.options.clock??Date.now)();}
  private state(scope:string){
   let value=this.scopes.get(scope);if(!value){
@@ -178,6 +190,7 @@ export class NativeCapabilities {
   if(request.version!==1||!TOPICS.includes(topic)||typeof request.commandId!=='string'||!request.commandId)throw Error('Valid capability version and command identity required.');
   if(scope!=='host'&&context.session?.uri!==scope)throw Error('Authenticated session context must match the requested scope.');
   if(Object.hasOwn(args,'sessionId')&&args.sessionId!==request.channel&&!(request.channel==='host'&&args.sessionId==='ahp-root://'))throw Error('Session selector disagrees with authenticated scope.');
+  if(IMAGE_OPERATIONS.includes(request.operation)&&!await this.negotiateImageSetup())throw imageSetupUnavailable();
   if(signInSelectors(request.operation,args)&&(!validSignInSelectors(args)||!await this.negotiateProviderSignIn()))throw signInSelectorsUnavailable();
   await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateNaming();
   if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)&&!this.contextClear)throw contextClearUnavailable();
@@ -298,13 +311,14 @@ export class NativeCapabilities {
      }
      else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
     }else result=await dispatched(()=>this.options.nativeAdmin!(op,arguments_,context));
-    if(op==='configuration.defaults'&&configurationVersion!==s.version){
+    if(['configuration.defaults','providers.imageModels'].includes(op)&&configurationVersion!==s.version){
      // Keep the completed read receipt, but a newer authoritative invalidation
      // prevents this older derived result from becoming current shared truth.
      return {accepted:true,updates:[],invalidate:['provider-catalog'],result:copy(result),_meta:{'amplifier.dev/operation':{id:request.commandId}}};
     }
     if(topic==='provider-catalog'){
      const overlay=s.overlays[topic]??{};
+     if(result.imageModelsProviderId){const id=String(result.imageModelsProviderId);overlay.imageCatalogs={...(overlay.imageCatalogs??{}),[id]:{models:result.imageModels,metadata:result.providerMetadata,supported:result.imageModelsSupported===true,phase:'ready'}};}
      if(result.modelsProviderId){const id=String(result.modelsProviderId);overlay.providerCatalogs={...(overlay.providerCatalogs??{}),[id]:{models:result.models,metadata:result.providerMetadata,phase:'ready'}};}
      if(result.modelsProviderId)overlay.modelCatalogs={...(overlay.modelCatalogs??{}),[result.modelsProviderId]:result.models};
      if(result.providerMetadata)overlay.metadata={...(overlay.metadata??{}),[result.providerMetadata.module]:result.providerMetadata};
@@ -348,7 +362,7 @@ export class NativeCapabilities {
    const changed=!result.cancelled&&!READS.has(op)&&!(op.endsWith('.list')||op.endsWith('.models')||op.endsWith('.show')||op.endsWith('.schema')||op.endsWith('.loginStatus'));
    const invalidates:Topic[]=changed?[...TOPICS]:[];
    const defaultsInvalidated=changed&&Boolean(s.overlays['provider-catalog']?.draftDefaults);
-   if(changed){if(ADMIN[op]){for(const key of this.scopes.keys())this.invalidate(key,invalidates);}else this.invalidate(scope,invalidates);}
+   if(changed){if(ADMIN[op]||IMAGE_OPERATIONS.includes(op)){for(const key of this.scopes.keys())this.invalidate(key,invalidates);}else this.invalidate(scope,invalidates);}
    const updates:RecordValue[]=[];
    if(scope!=='host')updates.push(this.record(scope,'runtime-control',this.runtime(scope,s),s));
    if(!result.cancelled&&(op==='configuration.inspect'||op==='configuration.apply'||op==='configuration.toggle'||op==='bundle.preview'||op==='bundle.switch')){
