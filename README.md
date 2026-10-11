@@ -504,6 +504,12 @@ Selectors are captured before initialization awaits. These ports do not create a
 worker, generator, journal or additional quiescence participant. The Host owns
 selected history binding, title serialization and UI projection.
 
+Optional `backfill` is admitted only when the genuine peer advertises cold,
+bounded-excerpt, durable-attempt naming support. It takes empty arguments and
+remains tracked by the same admin participant for the entire provider request.
+Held intake refuses it. Native owns eligibility, provider selection and attempt
+receipts; the bridge adds neither a scheduler nor automatic effect retries.
+
 Image setup uses the initialized peer's optional `admin.imageSetup` grant and
 separate image-model discovery. See [the bridge contract](contracts/native-bridge.v1.md#optional-image-setup).
 `test/image-setup.test.ts` covers user/agent routing and stale catalog rejection;

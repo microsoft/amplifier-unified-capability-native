@@ -116,11 +116,11 @@ export class AdminConnection {
   this.calls++;try{await this.start();return namingMetadata(this.namingMetadata)?structuredClone(this.namingMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }
  /** Trusted Host history binding only; no worker or active session admission. */
- async performNaming(input:{sessionId:string;cwd:string;operation:'read'|'preview'|'prepare'|'rename'|'policy'|'commit'|'receipt';args:Json}):Promise<Json>{
-  if(!input||Object.keys(input).sort().join(',')!=='args,cwd,operation,sessionId'||typeof input.sessionId!=='string'||!input.sessionId||input.sessionId.length>200||/[\x00-\x1f]/.test(input.sessionId)||typeof input.cwd!=='string'||!input.cwd.startsWith('/')||input.cwd.length>8192||/[\x00-\x1f]/.test(input.cwd)||!['read','preview','prepare','rename','policy','commit','receipt'].includes(input.operation)||!input.args||typeof input.args!=='object'||Array.isArray(input.args)||Buffer.byteLength(JSON.stringify(input.args))>16384)throw Error('Exact bounded trusted naming selectors required');
+ async performNaming(input:{sessionId:string;cwd:string;operation:'read'|'preview'|'prepare'|'rename'|'policy'|'commit'|'receipt'|'backfill';args:Json}):Promise<Json>{
+  if(!input||Object.keys(input).sort().join(',')!=='args,cwd,operation,sessionId'||typeof input.sessionId!=='string'||!input.sessionId||input.sessionId.length>200||/[\x00-\x1f]/.test(input.sessionId)||typeof input.cwd!=='string'||!input.cwd.startsWith('/')||input.cwd.length>8192||/[\x00-\x1f]/.test(input.cwd)||!['read','preview','prepare','rename','policy','commit','receipt','backfill'].includes(input.operation)||!input.args||typeof input.args!=='object'||Array.isArray(input.args)||Buffer.byteLength(JSON.stringify(input.args))>16384)throw Error('Exact bounded trusted naming selectors required');
   const captured=structuredClone(input);
   if(this.held&&!['read','preview','receipt'].includes(captured.operation))throw fenced();
-  this.calls++;try{await this.start();if(!namingMetadata(this.namingMetadata))throw Error('Passive naming is unavailable on the configured Native peer');return await this.rpc('_amplifier/naming',captured);}finally{this.calls--;if(!this.calls)this.idle();}
+  this.calls++;try{await this.start();if(!namingMetadata(this.namingMetadata))throw Error('Passive naming is unavailable on the configured Native peer');if(captured.operation==='backfill'&&(this.namingMetadata?.backfill?.version!==1||this.namingMetadata.backfill.cold!==true||this.namingMetadata.backfill.boundedExcerpt!==true||this.namingMetadata.backfill.durableAttempts!==true))throw Error('Cold naming is unavailable on the configured Native peer');return await this.rpc('_amplifier/naming',captured);}finally{this.calls--;if(!this.calls)this.idle();}
  }
  /** Passive scoped sign-in metadata from this connection's actual initialized peer. */
  async providerSignInCapabilities():Promise<Json|undefined>{

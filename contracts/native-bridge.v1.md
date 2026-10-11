@@ -394,6 +394,15 @@ Explicit generation uses the latter to adopt missing legacy naming metadata
 before capturing Host's title revision. Existing choices remain authoritative;
 later manual edits still invalidate the original generation guard.
 
+### Optional cold naming backfill
+
+The optional naming `backfill` grant is checked against the actual initialized
+peer before trusted composition can call it. The admin participant accounts for
+the full operation and refuses it under held intake. Native owns cold eligibility,
+bounded prompt creation, provider selection, durable attempts and canonical name
+CAS. No client prompt or scheduling policy is introduced at this boundary.
+`test/admin-naming.test.ts` covers unsupported peers, pending calls and refusal.
+
 ### Optional image setup
 
 The genuine initialized administration peer may advertise the closed
