@@ -29,11 +29,12 @@ type ReleaseProof=AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-re
 const IMPORTS=new Set(['history.import.begin','history.import.chunk','history.import.preview','history.import.commit','history.import.receipt']);
 const CACHES=new Set(['maintenance.cache.scan','maintenance.cache.page','maintenance.cache.preview','maintenance.cache.clear']);
 const BACKUP_CLEANUP=new Set(['maintenance.backups.inspect','maintenance.backups.preview','maintenance.backups.remove']);
+const HISTORY_CLEANUP=new Set(['maintenance.history.census','maintenance.history.preview','maintenance.history.remove']);
 const WORKSPACE_CLEANUP=new Set(['maintenance.workspace.preview','maintenance.workspace.remove']);
 const APP_RESETS=new Set(['maintenance.appReset.prepare','maintenance.appReset.apply','maintenance.appReset.inspect','maintenance.appReset.restore']);
 const CAPTURES=new Set(['maintenance.capture.acquire','maintenance.capture.inspect','maintenance.capture.release']);
 const READS=new Set(['storage.roots','provider.recording.get','provider.recording.receipt','bundle.receipt','maintenance.appReset.inspect','maintenance.capture.inspect','maintenance.cache.page','maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.manifest','permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
-const MAINTENANCE=new Set([...APP_RESETS,...CAPTURES,...CACHES,...WORKSPACE_CLEANUP,...BACKUP_CLEANUP,'maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.preview','maintenance.restore.manifest','maintenance.restore.apply','maintenance.restore.reconcile','maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
+const MAINTENANCE=new Set([...APP_RESETS,...CAPTURES,...CACHES,...HISTORY_CLEANUP,...WORKSPACE_CLEANUP,...BACKUP_CLEANUP,'maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.preview','maintenance.restore.manifest','maintenance.restore.apply','maintenance.restore.reconcile','maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
@@ -187,6 +188,10 @@ export class AdminConnection {
    if(operation.startsWith('maintenance.backups.')){
     const support=this.maintenanceMetadata?.backupCleanup;
     if(!BACKUP_CLEANUP.has(operation)||!permitted||support?.version!==1||support.previewRequired!==true||support.receipt!==true||support.requiresRecoveryAdminLease!==true||support.newestProtected!==true||support.recoveryReferencesProtected!==true||support.automaticReplay!==false)throw Object.assign(Error('Backup cleanup requires negotiated native support and the exact held recovery scope.'),{data:{executed:false,replayed:false,reason:'native-backup-cleanup-unavailable'}});
+   }
+   if(operation.startsWith('maintenance.history.')){
+    const support=this.maintenanceMetadata?.historyCleanup;
+    if(!HISTORY_CLEANUP.has(operation)||!permitted||support?.version!==1||support.previewRequired!==true||support.receipt!==true||support.requiresRecoveryAdminLease!==true||support.trustedOwnerCensus!==true||support.workspacePreserved!==true||support.stableLocksPreserved!==true||support.automaticReplay!==false)throw Object.assign(Error('History cleanup requires negotiated native support and the exact held recovery scope.'),{data:{executed:false,replayed:false,reason:'native-history-cleanup-unavailable'}});
    }
    if(operation.startsWith('maintenance.workspace.')){
     const support=this.maintenanceMetadata?.workspaceCleanup;

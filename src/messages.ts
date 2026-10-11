@@ -73,13 +73,13 @@ export class MessageConnection {
    this.held=undefined;this.uncertain=false;
   }catch(error){held.phase='unknown';this.uncertain=true;this.admission?.saveHeld(held);throw error;}
  }
- get quiescenceParticipant(){return{id:this.options.ownerId??'native-message-metadata',serviceStop:{version:1 as const},retentionHide:{version:1 as const},managedFiles:{version:1 as const,preservesCanonical:true as const},acquire:async(value:Readonly<MessageFenceContext>)=>{
+ get quiescenceParticipant(){return{id:this.options.ownerId??'native-message-metadata',serviceStop:{version:1 as const},retentionHide:{version:1 as const},recoveryReferences:{version:1 as const},managedFiles:{version:1 as const,preservesCanonical:true as const},acquire:async(value:Readonly<MessageFenceContext>)=>{
   const context=this.fenceContext(value);
   if(this.admission){if(!this.admission.acquire(context,!!(this.calls||this.uncertain||this.closed||this.held)))return null;}
   else if(this.calls||this.uncertain||this.closed||this.held)return null;
   if(this.releases.has(context.fenceId))throw refused('Completed message fence identity cannot be acquired again');this.held={context,phase:'held'};
   return{ownerId:this.options.ownerId??'native-message-metadata',fenceId:context.fenceId,release:(outcome:'unchanged'|'ready'|'unknown',proof?:AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'})=>this.release(context,outcome,proof,true),
-   ...(context.purpose==='retention-hide'?{inspectRetentionReferences:async(selection:unknown)=>this.inspectReferences(context,selection)}:{}),
+   ...(['retention-hide','recovery'].includes(context.purpose)?{inspectRetentionReferences:async(selection:unknown)=>this.inspectReferences(context,selection)}:{}),
    ...(context.purpose==='managed-files-disposal'?{inspectManagedFilesReferences:async(selection:unknown)=>this.inspectReferences(context,selection)}:{})};
  },abortAdmission:(input:Readonly<MessageFenceContext>&{proof:AdminAdmissionAbortProof})=>this.abortAdmission(input),reconcileRelease:async(input:Readonly<MessageFenceContext>&{outcome:'unchanged'|'ready';proof:AdminReleaseProof|AdminServiceReleaseProof})=>{
   try{
@@ -99,6 +99,9 @@ export class MessageConnection {
   const {sessions,limit,allocation}=value;
   if(!Array.isArray(sessions)||!sessions.length||sessions.length>101||limit!==101||new Set(sessions).size!==sessions.length||sessions.some(s=>typeof s!=='string'||!/^ahp-session:\/[^\s\x00-\x1f]{1,480}$/.test(s)))throw refused('Bounded selected maintenance family required');
   if(managed&&(!object(allocation)||Object.keys(allocation).sort().join(',')!=='allocationHash,allocationId,bytes,entryCount,executionDirectory,treeHash'||!/^([a-f0-9]{8})(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(allocation.allocationId)||!['allocationHash','treeHash'].every(k=>typeof allocation[k]==='string'&&/^[a-f0-9]{64}$/.test(allocation[k]))||!['entryCount','bytes'].every(k=>Number.isSafeInteger(allocation[k])&&allocation[k]>=0)||typeof allocation.executionDirectory!=='string'||!allocation.executionDirectory.startsWith('/')||allocation.executionDirectory.length>8192||/[\x00-\x1f]/.test(allocation.executionDirectory)))throw refused('Exact bounded managed allocation required');
+  // Recovery can inspect multiple bounded batches while the same global hold
+  // excludes every message writer. It grants no selection-bound mutation.
+  if(context.purpose==='recovery')return {coverage:'complete' as const,protected:[],omissions:[]};
   const selection=evidenceKey(value);
   if(held.selection!==undefined&&held.selection!==selection)throw refused('Message maintenance selection changed');
   // Store the selected identity before returning proof. A failed durable write

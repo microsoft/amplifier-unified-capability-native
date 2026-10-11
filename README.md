@@ -521,3 +521,20 @@ complete `admin.maintenance.workspaceCleanup` v1 contract. Its preview and remov
 operations require the exact trusted recovery maintenance fence. Passive original
 receipts never acquire authority or repeat removal; metadata settlement lives in
 the product owners and does not grant this bridge a new maintenance scope.
+
+### Reviewed shared history cleanup
+
+The passive administration bridge permits `maintenance.history.census`,
+`maintenance.history.preview`, and `maintenance.history.remove` only inside the
+original held Recovery callback and after exact native capability negotiation.
+Native owns canonical bytes, inventory, protected histories and receipts. Host
+and Recovery own reference coverage, review and navigation settlement. These
+operations grant no ordinary client or agent administration rights; missing peer
+support or an unrelated hold refuses before dispatch. Workspace files and stable
+locks remain preserved. See `test/admin-history-cleanup.test.ts`.
+
+The message forwarding participant also advertises read-only Recovery reference
+inspection on its original live hold. It has no deferred work; all saved message
+metadata remains Native-owned. Multiple bounded batches are supported while the
+shared hold excludes writers. Stale, unknown and released holds cannot inspect;
+retention-hide and managed-file mutation selection binding stays unchanged.

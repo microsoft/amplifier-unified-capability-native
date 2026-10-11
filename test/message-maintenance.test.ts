@@ -6,11 +6,11 @@ import {tmpdir} from 'node:os';
 const {MessageConnection}=await import(process.env.AMPLIFIER_NATIVE_CAPABILITY_MODULE??'../src/index.js');
 const options=(root:string)=>({command:'/must-not-start',cwd:root,account:'owned-account',admissionDirectory:join(root,'intake'),resolveSession:async()=>{throw Error('Maintenance cannot resolve or start Native');}});
 const allocation={allocationId:'11111111-1111-4111-8111-111111111111',allocationHash:'a'.repeat(64),treeHash:'b'.repeat(64),executionDirectory:'/owned/managed/files',entryCount:3,bytes:42};
-for(const purpose of ['retention-hide','managed-files-disposal'] as const){
+for(const purpose of ['retention-hide','managed-files-disposal','recovery'] as const){
  const context={fenceId:'maintenance-fence',commandId:'maintenance-command',purpose,instanceId:'original-instance',dataScope:'owned-scope'};
  const selection={sessions:['ahp-session:/root','ahp-session:/child'],limit:101,...(purpose==='managed-files-disposal'?{allocation}:{})};
  const proof={verified:true as const,fenceId:context.fenceId,commandId:context.commandId,instanceId:context.instanceId,dataScope:context.dataScope,outcome:'unchanged' as const,receiptId:'trusted-effect-receipt'};
- const inspect=(lease:any,value:any=selection)=>purpose==='retention-hide'?lease.inspectRetentionReferences(value):lease.inspectManagedFilesReferences(value);
+ const inspect=(lease:any,value:any=selection)=>purpose==='managed-files-disposal'?lease.inspectManagedFilesReferences(value):lease.inspectRetentionReferences(value);
  test(purpose+' closes message intake and binds one live selection without Native calls',async()=>{
   const root=await mkdtemp(join(tmpdir(),'message-maintenance-')),c=new MessageConnection(options(root));
   try{
@@ -21,7 +21,8 @@ for(const purpose of ['retention-hide','managed-files-disposal'] as const){
    if(purpose==='managed-files-disposal')for(const bad of [{...allocation,treeHash:'unknown'},{...allocation,bytes:-1},{...allocation,executionDirectory:'relative'},{...allocation,foreign:true}])await assert.rejects(inspect(lease,{...selection,allocation:bad}));
    assert.deepEqual(await inspect(lease),{coverage:'complete',protected:[],omissions:[]});
    assert.deepEqual(await inspect(lease,structuredClone(selection)),{coverage:'complete',protected:[],omissions:[]});
-   await assert.rejects(inspect(lease,{...selection,sessions:['ahp-session:/different']}),/changed/);
+   if(purpose==='recovery')assert.deepEqual(await inspect(lease,{...selection,sessions:['ahp-session:/different']}),{coverage:'complete',protected:[],omissions:[]});
+   else await assert.rejects(inspect(lease,{...selection,sessions:['ahp-session:/different']}),/changed/);
    await lease.release('unchanged',proof);await assert.rejects(inspect(lease),/live.*hold/);
    await lease.release('unchanged',{...proof});assert.equal(c.activity().intakeClosed,false);
    await assert.rejects(p.acquire(context));
