@@ -515,3 +515,9 @@ separate image-model discovery. See [the bridge contract](contracts/native-bridg
 `test/image-setup.test.ts` covers user/agent routing and stale catalog rejection;
 set `AMPLIFIER_ACP_PYTHON` and `AMPLIFIER_IMAGE_OLD_PYTHON` for actual installed
 peer negotiation. No image-generation request is issued by these tests.
+
+Reviewed workspace folder cleanup is available only when Native advertises the
+complete `admin.maintenance.workspaceCleanup` v1 contract. Its preview and remove
+operations require the exact trusted recovery maintenance fence. Passive original
+receipts never acquire authority or repeat removal; metadata settlement lives in
+the product owners and does not grant this bridge a new maintenance scope.
