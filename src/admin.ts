@@ -30,13 +30,13 @@ const IMPORTS=new Set(['history.import.begin','history.import.chunk','history.im
 const CACHES=new Set(['maintenance.cache.scan','maintenance.cache.page','maintenance.cache.preview','maintenance.cache.clear']);
 const APP_RESETS=new Set(['maintenance.appReset.prepare','maintenance.appReset.apply','maintenance.appReset.inspect','maintenance.appReset.restore']);
 const CAPTURES=new Set(['maintenance.capture.acquire','maintenance.capture.inspect','maintenance.capture.release']);
-const READS=new Set(['provider.recording.get','provider.recording.receipt','bundle.receipt','maintenance.appReset.inspect','maintenance.capture.inspect','maintenance.cache.page','maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.manifest','permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
+const READS=new Set(['storage.roots','provider.recording.get','provider.recording.receipt','bundle.receipt','maintenance.appReset.inspect','maintenance.capture.inspect','maintenance.cache.page','maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.manifest','permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
 const MAINTENANCE=new Set([...APP_RESETS,...CAPTURES,...CACHES,'maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.preview','maintenance.restore.manifest','maintenance.restore.apply','maintenance.restore.reconcile','maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private admissionAbortSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
- private capacityMetadata?:Json;
+ private capacityMetadata?:Json;private storageRootsSupported=false;
  private recordingMetadata?:Json;private imageMetadata?:Json;private imagePreferences?:Json;
  private providerSignInMetadata?:Json;private namingMetadata?:Json;
  private durableReleaseSupported=false;
@@ -70,6 +70,7 @@ export class AdminConnection {
    if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Object.assign(Error('Agent has no launcher-enabled native administration v1 capability.'),{data:{executed:false,replayed:false,reason:'native-admin-unavailable'}});}
    this.generationsMetadata=native.admin.generations?structuredClone(native.admin.generations):undefined;
    this.capacityMetadata=native.taskState?.capacity?structuredClone(native.taskState.capacity):undefined;
+   this.storageRootsSupported=native.admin.storageRoots?.version===1&&native.admin.storageRoots.passive===true&&native.admin.storageRoots.launcherOwned===true;
    this.namingMetadata=native.naming?structuredClone(native.naming):undefined;
    this.contextMetadata=native.contextClear?structuredClone(native.contextClear):undefined;
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
@@ -97,6 +98,10 @@ export class AdminConnection {
  /** Passive negotiated capability metadata; no runtime, archive inventory, or native settings reads. */
  async capacityCapabilities(){
   this.calls++;try{await this.start();return this.capacityMetadata?structuredClone(this.capacityMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ /** Optional passive launcher roots. Older peers are explicitly omitted. */
+ async storageRoots(context:Context):Promise<Json|undefined>{
+  this.calls++;try{await this.start();if(!this.storageRootsSupported)return undefined;return await this.perform('storage.roots',{},context);}finally{this.calls--;if(!this.calls)this.idle();}
  }
  async imageSetupCapabilities(){
   this.calls++;try{await this.start();return imageSetupMetadata(this.imageMetadata)?{...structuredClone(this.imageMetadata),...(this.imagePreferences?{preferences:structuredClone(this.imagePreferences)}:{})}:undefined;}finally{this.calls--;if(!this.calls)this.idle();}
@@ -162,6 +167,7 @@ export class AdminConnection {
   this.calls++;
   try{
    const cwd=importWorkspace??await this.options.resolveWorkspace(context);await this.start();
+   if(operation==='storage.roots'&&!this.storageRootsSupported)throw Error('Storage roots are unavailable on the configured Native peer');
    if(IMAGE_OPERATIONS.includes(operation)&&!imageSetupMetadata(this.imageMetadata))throw imageSetupUnavailable();
    if(operation==='providers.configureImages'&&Object.hasOwn(args,'mode')&&!imagePreferencesMetadata(this.imagePreferences))throw imageSetupUnavailable();
    if(signInSelectors(operation,args)&&(!validSignInSelectors(args)||!providerSignInMetadata(this.providerSignInMetadata)))throw signInSelectorsUnavailable();
