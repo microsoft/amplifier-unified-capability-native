@@ -445,3 +445,20 @@ settles the durable hold using the existing exact release path, without replay.
 The causal bridge tests cover both purposes, bounded selections, active/unknown
 refusal and cold exact release. Full assembled removal/hide and deployed checks
 remain separate evidence.
+
+## Cumulative usage and budget controls
+
+The bridge negotiates the actual Native `taskState.capacity` v1 marker and
+requires a trusted Host `readCapacity` callback before advertising the shared
+`capacity.read`, `capacity.set` and `capacity.quota` actions. All require the
+selected authenticated conversation; argument selectors cannot change authority.
+Reads use passive Native policy plus durable Host scalar receipts. Writes use
+Native's original command identity and expected revision, then inspect the result.
+If a saved edit's follow-up read fails, the result still says the budget was saved
+and invites inspection; it never suggests replaying the mutation. Provider quota
+is separately sourced from Native and may be unavailable. Generic runtime
+controls cannot bypass these admitted actions. Missing peers omit the capability.
+
+The bridge introduces no accounting database or second policy writer. Host
+process ownership, admission and durable usage belong to the Host; Native owns
+policy, receipts and provider hooks; clients own private draft controls.

@@ -36,6 +36,7 @@ const fenced=()=>Object.assign(Error('Native administration intake is held; no n
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private admissionAbortSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
+ private capacityMetadata?:Json;
  private recordingMetadata?:Json;private imageMetadata?:Json;private imagePreferences?:Json;
  private providerSignInMetadata?:Json;private namingMetadata?:Json;
  private durableReleaseSupported=false;
@@ -68,6 +69,7 @@ export class AdminConnection {
    const native=init.agentCapabilities?._meta?.['amplifier.dev/native'] as Json|undefined;
    if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Object.assign(Error('Agent has no launcher-enabled native administration v1 capability.'),{data:{executed:false,replayed:false,reason:'native-admin-unavailable'}});}
    this.generationsMetadata=native.admin.generations?structuredClone(native.admin.generations):undefined;
+   this.capacityMetadata=native.taskState?.capacity?structuredClone(native.taskState.capacity):undefined;
    this.namingMetadata=native.naming?structuredClone(native.naming):undefined;
    this.contextMetadata=native.contextClear?structuredClone(native.contextClear):undefined;
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
@@ -93,6 +95,9 @@ export class AdminConnection {
   finally{if(timer)clearTimeout(timer);}
  }
  /** Passive negotiated capability metadata; no runtime, archive inventory, or native settings reads. */
+ async capacityCapabilities(){
+  this.calls++;try{await this.start();return this.capacityMetadata?structuredClone(this.capacityMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
  async imageSetupCapabilities(){
   this.calls++;try{await this.start();return imageSetupMetadata(this.imageMetadata)?{...structuredClone(this.imageMetadata),...(this.imagePreferences?{preferences:structuredClone(this.imagePreferences)}:{})}:undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }

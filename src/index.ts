@@ -24,6 +24,9 @@ export interface Options extends NamingPorts {
  nativeProviderSignIn?:()=>Promise<Json|undefined>;
  /** Passive image setup metadata from this initialized admin peer. */
  nativeImageSetup?:()=>Promise<Json|undefined>;
+ /** Passive negotiated policy plus Host-owned scalar receipt accounting. */
+ nativeCapacity?:()=>Promise<Json|undefined>;
+ readCapacity?:(session:string,input:{offset?:number;limit?:number})=>Promise<Json>;
  /** Host binds canonical native session identity/history cwd without opening a worker. */
  nativeContextReceipt?:(session:string,commandId:string)=>Promise<Json>;
  maxScopes?:number;cacheMs?:number;clock?:()=>number;
@@ -48,6 +51,15 @@ interface ScopeState {records:Map<Topic,Cached>;results:Json;overlays:Partial<Re
 /** Records contain only the requested topic, are bounded, and expire independently of native durability. */
 export class NativeCapabilities {
  readonly manifest:{version:1;topics:Record<string,{uri:string;version:1;watch:true}>;actions:Record<string,{topic:string;operation:string;method:typeof METHOD}>};
+ private capacityNegotiation?:Promise<boolean>;private capacityAvailable=false;
+ negotiateCapacity=async():Promise<boolean>=>{
+  if(!this.options.nativeCapacity||!this.options.readCapacity)return false;
+  if(!this.capacityNegotiation)this.capacityNegotiation=(async()=>{
+   try{const marker=await this.options.nativeCapacity!();this.capacityAvailable=marker?.version===1&&marker.passivePolicy===true&&marker.admission==='native-owner-snapshot';}catch{this.capacityAvailable=false;}
+   if(this.capacityAvailable)for(const operation of ['capacity.read','capacity.set','capacity.quota'])this.manifest.actions[operation]={topic:'runtime-control',operation,method:METHOD};
+   return this.capacityAvailable;
+  })();return this.capacityNegotiation;
+ };
  private namingNegotiation?:Promise<boolean>;private namingAvailable=false;
  negotiateNaming=async():Promise<boolean>=>{
   if(!this.options.nativeNaming||!this.options.nativeNamingCapabilities||!this.options.readSessionTitle||!this.options.commitSessionTitle)return false;
@@ -123,7 +135,7 @@ export class NativeCapabilities {
   })();
   return this.bundleNegotiation;
  };
- actionSchemas=async()=>{await this.negotiateNaming();await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();await this.negotiateImageSetup();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(name==='providers.configureImages'&&this.imagePreferences){advertised.schema.properties.mode={enum:['automatic','off']};delete advertised.schema.required;advertised.schema.oneOf=[{required:['mode'],not:{anyOf:['id','enabled','model','exclusive'].map(key=>({required:[key]}))}},{required:['id','enabled'],not:{required:['mode']}}];}if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.sessionId;delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;delete advertised.schema.dependentRequired;}return [name,advertised];}));};
+ actionSchemas=async()=>{await this.negotiateCapacity();await this.negotiateNaming();await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();await this.negotiateImageSetup();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(name==='providers.configureImages'&&this.imagePreferences){advertised.schema.properties.mode={enum:['automatic','off']};delete advertised.schema.required;advertised.schema.oneOf=[{required:['mode'],not:{anyOf:['id','enabled','model','exclusive'].map(key=>({required:[key]}))}},{required:['id','enabled'],not:{required:['mode']}}];}if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.sessionId;delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;delete advertised.schema.dependentRequired;}return [name,advertised];}));};
  private now(){return(this.options.clock??Date.now)();}
  private state(scope:string){
   let value=this.scopes.get(scope);if(!value){
@@ -193,9 +205,27 @@ export class NativeCapabilities {
   if(IMAGE_OPERATIONS.includes(request.operation)&&!await this.negotiateImageSetup())throw imageSetupUnavailable();
   if(request.operation==='providers.configureImages'&&Object.hasOwn(request.args??{},'mode')&&!this.imagePreferences)throw imageSetupUnavailable();
   if(signInSelectors(request.operation,args)&&(!validSignInSelectors(args)||!await this.negotiateProviderSignIn()))throw signInSelectorsUnavailable();
-  await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateNaming();
+  await this.negotiateCapacity();await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateNaming();
   if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)&&!this.contextClear)throw contextClearUnavailable();
   const advertised=Object.values(this.manifest.actions).find(row=>row.operation===request.operation&&row.topic===topic);if(!advertised)throw Error('Native action not advertised.');
+  if(['capacity.read','capacity.set','capacity.quota'].includes(request.operation)){
+   if(scope==='host'||!this.capacityAvailable)throw Error('Select a conversation with negotiated task usage support');
+   const allowed=request.operation==='capacity.read'?['sessionId','offset','limit']:request.operation==='capacity.quota'?['sessionId']:['sessionId','enabled','maxTotalTokens','maxCostUsd','warningFraction','unknownPolicy','includeEstimatedCost','expectedRevision'];
+   if(Object.keys(args).some(key=>!allowed.includes(key)))throw Error('Unknown budget or usage selector');
+   const {sessionId:_selector,...input}=args;
+   s.pending++;try{
+    let result:Json;
+    if(request.operation==='capacity.read')result=await this.options.readCapacity!(scope,input);
+    else if(request.operation==='capacity.quota')result=await this.native(scope,'capacity.quota',{});
+    else{
+     const budget=await this.native(scope,'capacity.set',{...input,commandId:request.commandId,origin:context.origin??'ui'});
+     // Preserve the successful mutation even if its passive follow-up fails.
+     // The caller can inspect again; never classify an applied edit as replayable.
+     try{result=await this.options.readCapacity!(scope,{});}catch(error){result={budget,applied:true,refreshUnavailable:true,message:'Budget saved. Inspect task usage to refresh the receipts.'};}
+    }
+    return {accepted:true,updates:[],invalidate:[],result,_meta:{'amplifier.dev/operation':{id:request.commandId}}};
+   }finally{s.pending--;}
+  }
   if(request.operation==='session.titlePreview'){
    if(scope==='host'||!this.namingAvailable||Object.keys(args).some(k=>!['id','sessionId'].includes(k))||['id','sessionId'].some(k=>Object.hasOwn(args,k)&&args[k]!==scope))throw Error('Title preview target must match the authenticated session.');
    s.pending++;try{const result=await this.options.nativeNaming!(scope,'preview',{});
@@ -257,7 +287,7 @@ export class NativeCapabilities {
   s.pending++;
   try {
    if(op==='runtime.control'){op=args.operation;arguments_=object(args.args??{});if(typeof op!=='string'||forbiddenFields.has(op))throw Error('Native operation required.');
-    if(['context.clear','context.clear.review','context.clear.receipt','history.edit','history.revise','steer','steer.submit','session.relocate','session.naming.generate','session.naming.commit','session.naming.policy','session.naming.rename'].includes(op)||['question.','schedule.','observation.','memory.','operations.','kernels.'].some(prefix=>op.startsWith(prefix)))throw Error('Use the admitted capability owned by this operation; generic native controls cannot bypass its lifecycle or receipts.');
+    if(['context.clear','context.clear.review','context.clear.receipt','history.edit','history.revise','steer','steer.submit','session.relocate','session.naming.generate','session.naming.commit','session.naming.policy','session.naming.rename'].includes(op)||['question.','schedule.','observation.','memory.','operations.','kernels.','capacity.'].some(prefix=>op.startsWith(prefix)))throw Error('Use the admitted capability owned by this operation; generic native controls cannot bypass its lifecycle or receipts.');
     if(op==='tool.invoke')arguments_={...arguments_,actor:context.origin??'ui'};
    }else{const {sessionId:_selector,...values}=arguments_;arguments_=values;}
    if(request.operation==='runtime.control'||['configuration.inspect','configuration.apply','configuration.toggle','configuration.cancel','bundle.preview','bundle.switch'].includes(op)){

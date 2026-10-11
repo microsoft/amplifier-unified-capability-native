@@ -873,6 +873,20 @@ export const ACTION_SCHEMAS:Record<string,{description:string;schema:Record<stri
       "additionalProperties": false
     }
   },
+  "capacity.read": {
+    "description": "Read persisted conversation usage and budget without starting a model or runtime worker.",
+    "schema": {"type": "object", "additionalProperties": false,
+    "properties": {"sessionId":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}}
+  },
+  "capacity.set": {
+    "description": "Update the budget checked before subsequent model calls. Does not send or resume a turn.",
+    "schema": {"type": "object", "additionalProperties": false, "required":["expectedRevision"],
+    "properties": {"sessionId":{"type":"string"},"expectedRevision":{"type":"integer","minimum":0},"enabled":{"type":"boolean"},"maxTotalTokens":{"type":["integer","null"],"minimum":1},"maxCostUsd":{"type":["number","null"],"exclusiveMinimum":0},"warningFraction":{"type":"number","exclusiveMinimum":0,"maximum":1},"unknownPolicy":{"enum":["pause","allow"]},"includeEstimatedCost":{"type":"boolean"}}}
+  },
+  "capacity.quota": {
+    "description": "Inspect provider-reported account limits. A missing capability is not zero usage.",
+    "schema": {"type": "object", "additionalProperties": false,"properties":{"sessionId":{"type":"string"}}}
+  },
   "runtime.control": {
     "description": "Manage runtime modes, goals, provider, budgets, skills and tools",
     "schema": {
