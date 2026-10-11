@@ -1,4 +1,4 @@
-import {imageSetupMetadata,IMAGE_OPERATIONS,imageSetupUnavailable} from './image-setup.js';
+import {imageSetupMetadata,imagePreferencesMetadata,IMAGE_OPERATIONS,imageSetupUnavailable} from './image-setup.js';
 import {providerRecordingMetadata} from './provider-recording.js';
 import {namingMetadata} from './naming.js';
 import {contextClearMetadata,contextClearUnavailable} from './context-clear.js';
@@ -36,7 +36,7 @@ const fenced=()=>Object.assign(Error('Native administration intake is held; no n
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private admissionAbortSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
- private recordingMetadata?:Json;private imageMetadata?:Json;
+ private recordingMetadata?:Json;private imageMetadata?:Json;private imagePreferences?:Json;
  private providerSignInMetadata?:Json;private namingMetadata?:Json;
  private durableReleaseSupported=false;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
@@ -73,6 +73,7 @@ export class AdminConnection {
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
    this.providerSignInMetadata=native.admin.providerSignIn?structuredClone(native.admin.providerSignIn):undefined;
    this.imageMetadata=native.admin.imageSetup?structuredClone(native.admin.imageSetup):undefined;
+   this.imagePreferences=imagePreferencesMetadata(native.admin.imagePreferences)?structuredClone(native.admin.imagePreferences):undefined;
    this.recordingMetadata=native.admin.providerRecording?structuredClone(native.admin.providerRecording):undefined;
    this.maintenanceMetadata=native.admin.maintenance?structuredClone(native.admin.maintenance):undefined;
    this.historyImportSupported=native.admin.historyImport?.version===1&&native.admin.historyImport?.staged===true;
@@ -93,7 +94,7 @@ export class AdminConnection {
  }
  /** Passive negotiated capability metadata; no runtime, archive inventory, or native settings reads. */
  async imageSetupCapabilities(){
-  this.calls++;try{await this.start();return imageSetupMetadata(this.imageMetadata)?structuredClone(this.imageMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+  this.calls++;try{await this.start();return imageSetupMetadata(this.imageMetadata)?{...structuredClone(this.imageMetadata),...(this.imagePreferences?{preferences:structuredClone(this.imagePreferences)}:{})}:undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }
  async providerRecordingCapabilities(){
   this.calls++;try{await this.start();return providerRecordingMetadata(this.recordingMetadata)?structuredClone(this.recordingMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
@@ -157,6 +158,7 @@ export class AdminConnection {
   try{
    const cwd=importWorkspace??await this.options.resolveWorkspace(context);await this.start();
    if(IMAGE_OPERATIONS.includes(operation)&&!imageSetupMetadata(this.imageMetadata))throw imageSetupUnavailable();
+   if(operation==='providers.configureImages'&&Object.hasOwn(args,'mode')&&!imagePreferencesMetadata(this.imagePreferences))throw imageSetupUnavailable();
    if(signInSelectors(operation,args)&&(!validSignInSelectors(args)||!providerSignInMetadata(this.providerSignInMetadata)))throw signInSelectorsUnavailable();
    if(operation.startsWith('generations.')&&this.generationsMetadata?.version!==1)throw Object.assign(Error('Native runtime updates are unavailable for this installation; the trusted launcher must enable them.'),{data:{executed:false,replayed:false,reason:'native-generations-unavailable'}});
    if(['bundle.save','bundle.export','bundle.default'].includes(operation)&&args.commandId!==undefined&&(this.bundleMetadata?.version!==1||this.bundleMetadata?.passiveReceipt!==true))throw Object.assign(Error('Native bundle command identities are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'bundle-command-unavailable'}});

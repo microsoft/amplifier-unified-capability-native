@@ -1,4 +1,4 @@
-import {imageSetupMetadata,IMAGE_OPERATIONS,imageSetupUnavailable} from './image-setup.js';
+import {imageSetupMetadata,imagePreferencesMetadata,IMAGE_OPERATIONS,imageSetupUnavailable} from './image-setup.js';
 import {namingMetadata,performNaming,type NamingPorts} from './naming.js';
 import {nativeRefusal} from './refusals.js';
 import {contextClearCommandId,contextClearRevision,contextClearMetadata,exactContextClearReview,exactContextClearResult,exactContextReceipt,contextClearUnavailable} from './context-clear.js';
@@ -59,11 +59,11 @@ export class NativeCapabilities {
  };
  private bundleNegotiation?:Promise<boolean>;private bundleCommands=false;
  private contextNegotiation?:Promise<boolean>;private contextClear=false;
- private imageNegotiation?:Promise<boolean>;private imageSetup=false;
+ private imageNegotiation?:Promise<boolean>;private imageSetup=false;private imagePreferences=false;
  negotiateImageSetup=async():Promise<boolean>=>{
   if(!this.options.nativeImageSetup||!this.options.nativeAdmin)return false;
   if(!this.imageNegotiation)this.imageNegotiation=(async()=>{
-   try{this.imageSetup=imageSetupMetadata(await this.options.nativeImageSetup!());}catch{this.imageSetup=false;}
+   try{const marker=await this.options.nativeImageSetup!();this.imageSetup=imageSetupMetadata(marker);this.imagePreferences=this.imageSetup&&imagePreferencesMetadata(marker?.preferences);}catch{this.imageSetup=false;}
    if(this.imageSetup)for(const operation of IMAGE_OPERATIONS)this.manifest.actions[operation]={topic:'provider-catalog',operation,method:METHOD};
    return this.imageSetup;
   })();return this.imageNegotiation;
@@ -123,7 +123,7 @@ export class NativeCapabilities {
   })();
   return this.bundleNegotiation;
  };
- actionSchemas=async()=>{await this.negotiateNaming();await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();await this.negotiateImageSetup();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.sessionId;delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;delete advertised.schema.dependentRequired;}return [name,advertised];}));};
+ actionSchemas=async()=>{await this.negotiateNaming();await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateProviderSignIn();await this.negotiateImageSetup();return Object.fromEntries(Object.keys(this.manifest.actions).map(name=>{const value=ACTION_SCHEMAS[name];if(!value)throw Error(`Missing public native action schema: ${name}`);const advertised=copy(value);if(name==='providers.configureImages'&&this.imagePreferences){advertised.schema.properties.mode={enum:['automatic','off']};delete advertised.schema.required;advertised.schema.oneOf=[{required:['mode'],not:{anyOf:['id','enabled','model','exclusive'].map(key=>({required:[key]}))}},{required:['id','enabled'],not:{required:['mode']}}];}if(!this.scopedSignIn&&['providers.loginStatus','providers.loginCancel'].includes(name)){delete advertised.schema.properties.sessionId;delete advertised.schema.properties.scope;delete advertised.schema.properties.loginId;delete advertised.schema.dependentRequired;}return [name,advertised];}));};
  private now(){return(this.options.clock??Date.now)();}
  private state(scope:string){
   let value=this.scopes.get(scope);if(!value){
@@ -142,7 +142,7 @@ export class NativeCapabilities {
   // All publications of this replacement topic use the same bounded projection.
   // These are native-resolved choices, not client drafts or a new native store.
   const {draftDefaults,...setup}=value;
-  const data:Json={setup:{...setup,providerSignIn:this.providerSignInAvailability()}};
+  const data:Json={setup:{...setup,imagePreferences:{version:1,available:this.imagePreferences},providerSignIn:this.providerSignInAvailability()}};
   if(draftDefaults){
    const defaults={...draftDefaults};
    const size=()=>Buffer.byteLength(JSON.stringify({...data,draftDefaults:defaults}));
@@ -155,7 +155,7 @@ export class NativeCapabilities {
   return data;
  }
  private async load(topic:Topic,scope:string,context:Context,s:ScopeState):Promise<Json>{
-  await this.negotiateBundleCommands();await this.negotiateProviderSignIn();
+  await this.negotiateBundleCommands();await this.negotiateProviderSignIn();await this.negotiateImageSetup();
   if(this.bundleAvailability.state==='unavailable'&&(topic==='bundles'||topic==='provider-catalog'||topic==='configuration'&&scope==='host'))return {nativeAdministration:copy(this.bundleAvailability),...(topic==='provider-catalog'?{...this.providerCatalog(s),setup:{providerSignIn:{...this.providerSignInAvailability(),available:false,selectors:[]}}}:{})};
   if(topic==='configuration'){
    if(scope!=='host'){const value=await this.native(scope,'configuration.inspect');const {registry,...overlay}=s.overlays.configuration??{};return {configuration:{sessionId:scope,...overlay,...value},configurationRevision:s.version,...(registry?{registry}:{})};}
@@ -191,6 +191,7 @@ export class NativeCapabilities {
   if(scope!=='host'&&context.session?.uri!==scope)throw Error('Authenticated session context must match the requested scope.');
   if(Object.hasOwn(args,'sessionId')&&args.sessionId!==request.channel&&!(request.channel==='host'&&args.sessionId==='ahp-root://'))throw Error('Session selector disagrees with authenticated scope.');
   if(IMAGE_OPERATIONS.includes(request.operation)&&!await this.negotiateImageSetup())throw imageSetupUnavailable();
+  if(request.operation==='providers.configureImages'&&Object.hasOwn(request.args??{},'mode')&&!this.imagePreferences)throw imageSetupUnavailable();
   if(signInSelectors(request.operation,args)&&(!validSignInSelectors(args)||!await this.negotiateProviderSignIn()))throw signInSelectorsUnavailable();
   await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateNaming();
   if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)&&!this.contextClear)throw contextClearUnavailable();

@@ -413,6 +413,16 @@ image projections. Unknown write outcomes retain the original receipt and must
 not be automatically replayed. Provider generation and output artifacts remain
 separate acceptance surfaces.
 
+The optional sibling Native administration marker `imagePreferences` is closed:
+`{version:1,modes:["automatic","selected","off"],application:"new-sessions"}`.
+It leaves the original `imageSetup` marker unchanged. Only peers advertising
+both markers accept `providers.configureImages` with `mode:"automatic"` or
+`mode:"off"`, without connection/model selectors. The bridge advertises those
+choices only after negotiation; older image peers retain explicit connection
+selection. Native owns the scoped preference and materializes automatic choices
+from installed provider metadata and catalogs when creating a new session.
+Changing the preference does not remount existing sessions or generate images.
+
 
 ## Message intake during reviewed maintenance
 
