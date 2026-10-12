@@ -8,6 +8,36 @@ The schema owners define wire details; this document does not copy them.
 
 ## Public boundary and consumers
 
+Configuration owner selection is optional and negotiated from the actual Native
+administration initialize result. The closed `configurationTargets` v1 marker
+requires `globalOnly`, `workspaceBound`, and `isolatedResults` to be true. It is
+advertised on `configuration` and `provider-catalog` topics only after negotiation.
+Provider, routing, module and source operations may then use one explicit
+`configurationTarget`: global settings, or a registered opaque workspace ID.
+The distribution resolves workspace IDs through its authorized catalog and Host;
+the bridge accepts neither paths nor mixed session/workspace selectors.
+
+These operations use the root administration route for users and agents alike.
+An originating agent session remains Host admission context, never the settings
+owner. Global writes use global scope; workspace writes use local or project
+scope. Records, caches, model catalogs, status and sign-in attempts retain the
+explicit owner. Each Native response must confirm it. A mismatched response is
+ambiguous after dispatch, not evidence that no effect occurred. Old peers refuse
+explicit owners before administration RPC, rather than falling back to the chat.
+The optional selectors do not change ordinary selected-session configuration.
+See `test/configuration-target.test.ts` and the independently installed Native
+fixture in `test/configuration-target.integration.test.ts`.
+
+The optional `provider-recording` topic is a host-scoped projection of Native's
+existing diagnostics configuration. Its descriptor is exactly
+`{version:1,cas:true,receipt:true,application:"next-runtime-preparation"}`.
+Only a peer that advertises this descriptor enables
+`diagnostics.recording.get/configure/receipt`. The bridge forwards the exact
+outer command identity for writes; reads and receipt inspection remain available
+under held intake. Native owns policy, CAS, receipts, and provider application.
+The existing Native administration participant owns exclusion. This bridge
+neither records model payloads itself nor claims prior calls can be recovered.
+
 `createNativeCapabilities` supplies manifest discovery, `actionSchemas`, bounded
 `read`, scoped `action`, and lazy `invalidate`. `AdminConnection` supplies trusted
 `perform`, narrow import/maintenance composition and one administration quiescence
@@ -206,6 +236,16 @@ with `executed:false`, `replayed:false`, and `native-generations-unavailable`.
 This connection never enables the launcher grant. Maintenance permission alone
 does not grant generation operations.
 
+The optional closed `generations.progress` marker is
+`{version:1,metadataOnly:true,notification:"_amplifier/admin/generationsChanged"}`.
+Only after negotiating it does `AdminConnection` accept the same named extension
+notification with exactly `{version:1}` and call trusted
+`onGenerationsChanged`. It is an advisory invalidation, never a receipt or effect
+proof. It performs no native read or mutation and ignores observer errors.
+Composition may invalidate the maintenance owner's selected bounded projection;
+the native owner still supplies every phase and original operation receipt.
+Unknown fields, older peers and notifications before negotiation are ignored.
+
 ## Passive account-bound message metadata
 
 `createMessageCapabilities(options)` returns `{connection,capabilities}`. Trusted
@@ -383,3 +423,81 @@ or open a worker. Native owns transcript bounds and saved-name precedence.
 Explicit generation uses the latter to adopt missing legacy naming metadata
 before capturing Host's title revision. Existing choices remain authoritative;
 later manual edits still invalidate the original generation guard.
+
+### Optional cold naming backfill
+
+The optional naming `backfill` grant is checked against the actual initialized
+peer before trusted composition can call it. The admin participant accounts for
+the full operation and refuses it under held intake. Native owns cold eligibility,
+bounded prompt creation, provider selection, durable attempts and canonical name
+CAS. No client prompt or scheduling policy is introduced at this boundary.
+`test/admin-naming.test.ts` covers unsupported peers, pending calls and refusal.
+
+### Optional image setup
+
+The genuine initialized administration peer may advertise the closed
+`imageSetup` marker `{version:1,catalog:"provider-image-models",preservesChat:true,exclusive:true}`.
+Only this marker enables `providers.imageModels` and `providers.configureImages`.
+The trusted composition binds `nativeImageSetup` to `admin.imageSetupCapabilities()`
+and awaits negotiation before manifest registration. Older peers advertise neither
+operation and refuse direct dispatch without effects. This does not start a worker.
+
+Image discovery is independent of the chat catalog and never infers entitlement
+or calls generation. Only the installed provider's optional public metadata and
+image catalog supply choices. Image saves use the same bounded administration
+path for users and agents, preserve chat configuration and credentials, and take
+effect in new sessions. The optional `exclusive` flag selects one image connection
+in a single scoped settings write. A configuration change invalidates pending
+image projections. Unknown write outcomes retain the original receipt and must
+not be automatically replayed. Provider generation and output artifacts remain
+separate acceptance surfaces.
+
+The optional sibling Native administration marker `imagePreferences` is closed:
+`{version:1,modes:["automatic","selected","off"],application:"new-sessions"}`.
+It leaves the original `imageSetup` marker unchanged. Only peers advertising
+both markers accept `providers.configureImages` with `mode:"automatic"` or
+`mode:"off"`, without connection/model selectors. The bridge advertises those
+choices only after negotiation; older image peers retain explicit connection
+selection. Native owns the scoped preference and materializes automatic choices
+from installed provider metadata and catalogs when creating a new session.
+Changing the preference does not remount existing sessions or generate images.
+
+
+## Message intake during reviewed maintenance
+
+The message participant also implements the existing trusted `retentionHide` v1
+and `managedFiles` v1 (`preservesCanonical: true`) owner ports. These ports are
+not client actions or new Native operations. The distribution must still include
+every other configured owner and Native's canonical family lease; omitting the
+message owner or treating its proof as a Native lease is invalid.
+
+A hold closes all message reads and effects and refuses while a request is active
+or an earlier message effect is uncertain. Reference inspection requires that
+exact live hold and one immutable bounded selection. It reports no deferred work
+or external-file references for this forwarding owner: saved reaction metadata,
+quote references, original receipts and canonical histories remain Native-owned
+and are preserved by the maintenance operation. The bridge never scans or changes
+those stores. Changed selections, stale leases, and unknown or replacement holds
+cannot issue a new complete reference proof. Original trusted outcome evidence
+settles the durable hold using the existing exact release path, without replay.
+
+The causal bridge tests cover both purposes, bounded selections, active/unknown
+refusal and cold exact release. Full assembled removal/hide and deployed checks
+remain separate evidence.
+
+## Cumulative usage and budget controls
+
+The bridge negotiates the actual Native `taskState.capacity` v1 marker and
+requires a trusted Host `readCapacity` callback before advertising the shared
+`capacity.read`, `capacity.set` and `capacity.quota` actions. All require the
+selected authenticated conversation; argument selectors cannot change authority.
+Reads use passive Native policy plus durable Host scalar receipts. Writes use
+Native's original command identity and expected revision, then inspect the result.
+If a saved edit's follow-up read fails, the result still says the budget was saved
+and invites inspection; it never suggests replaying the mutation. Provider quota
+is separately sourced from Native and may be unavailable. Generic runtime
+controls cannot bypass these admitted actions. Missing peers omit the capability.
+
+The bridge introduces no accounting database or second policy writer. Host
+process ownership, admission and durable usage belong to the Host; Native owns
+policy, receipts and provider hooks; clients own private draft controls.

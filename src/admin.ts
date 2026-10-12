@@ -1,3 +1,6 @@
+import {configurationTargetsMetadata,configurationTarget,configurationTargetUnavailable} from './configuration-target.js';
+import {imageSetupMetadata,imagePreferencesMetadata,IMAGE_OPERATIONS,imageSetupUnavailable} from './image-setup.js';
+import {providerRecordingMetadata} from './provider-recording.js';
 import {namingMetadata} from './naming.js';
 import {contextClearMetadata,contextClearUnavailable} from './context-clear.js';
 import {providerSignInMetadata,signInSelectors,validSignInSelectors,signInSelectorsUnavailable} from './provider-signin.js';
@@ -17,6 +20,8 @@ export interface AdminOptions {
  initializationTimeoutMs?:number;
  ownerId?:string;
  onMayBeIdle?:()=>void;
+ /** Advisory metadata invalidation from a negotiated peer; never an outcome. */
+ onGenerationsChanged?:()=>void;
 }
 export interface AdminAdmissionAbortProof {kind:'distribution-admission-abort';verified:true;purpose:'distribution-update';commandId:string;fenceId:string;instanceId:string;dataScope:string;receiptId:string}
 export interface AdminAdmissionAbortReceipt {ownerId:string;status:'released'|'not-acquired';receiptId:string;commandId:string;fenceId:string;instanceId:string;dataScope:string}
@@ -26,14 +31,19 @@ export type AdminServiceReleaseProof=AdminReleaseProof&ServiceReleaseFields;
 type ReleaseProof=AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'};
 const IMPORTS=new Set(['history.import.begin','history.import.chunk','history.import.preview','history.import.commit','history.import.receipt']);
 const CACHES=new Set(['maintenance.cache.scan','maintenance.cache.page','maintenance.cache.preview','maintenance.cache.clear']);
+const BACKUP_CLEANUP=new Set(['maintenance.backups.inspect','maintenance.backups.preview','maintenance.backups.remove']);
+const HISTORY_CLEANUP=new Set(['maintenance.history.census','maintenance.history.preview','maintenance.history.remove']);
+const WORKSPACE_CLEANUP=new Set(['maintenance.workspace.preview','maintenance.workspace.remove']);
 const APP_RESETS=new Set(['maintenance.appReset.prepare','maintenance.appReset.apply','maintenance.appReset.inspect','maintenance.appReset.restore']);
 const CAPTURES=new Set(['maintenance.capture.acquire','maintenance.capture.inspect','maintenance.capture.release']);
-const READS=new Set(['bundle.receipt','maintenance.appReset.inspect','maintenance.capture.inspect','maintenance.cache.page','maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.manifest','permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
-const MAINTENANCE=new Set([...APP_RESETS,...CAPTURES,...CACHES,'maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.preview','maintenance.restore.manifest','maintenance.restore.apply','maintenance.restore.reconcile','maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
+const READS=new Set(['storage.roots','provider.recording.get','provider.recording.receipt','bundle.receipt','maintenance.appReset.inspect','maintenance.capture.inspect','maintenance.cache.page','maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.manifest','permissions.get','permissions.receipt','voice.preferences.receipt','history.import.receipt','maintenance.archive.manifest','voice.configuration','maintenance.receipt','maintenance.artifact.read','maintenance.lease','generations.receipt','generations.inspect','generations.current']);
+const MAINTENANCE=new Set([...APP_RESETS,...CAPTURES,...CACHES,...HISTORY_CLEANUP,...WORKSPACE_CLEANUP,...BACKUP_CLEANUP,'maintenance.artifact.inspect','maintenance.restore.inspect','maintenance.restore.preview','maintenance.restore.manifest','maintenance.restore.apply','maintenance.restore.reconcile','maintenance.archive.create','maintenance.archive.add','maintenance.archive.prepare','maintenance.archive.manifest','maintenance.preview','maintenance.reset.preview','maintenance.acquire','maintenance.snapshot','maintenance.release','maintenance.lease','maintenance.receipt','maintenance.artifact.read','maintenance.reset.apply','maintenance.reset.restore','maintenance.reset.reconcile']);
 const fenced=()=>Object.assign(Error('Native administration intake is held; no new effect was admitted'),{data:{executed:false,replayed:false,reason:'admin-quiescence-fenced'}});
 /** Private passive ACP connection; held lifecycle proof includes native-owned background writers. */
 export class AdminConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private admissionAbortSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
+ private capacityMetadata?:Json;private storageRootsSupported=false;
+ private configurationTargets?:Json;private recordingMetadata?:Json;private imageMetadata?:Json;private imagePreferences?:Json;
  private providerSignInMetadata?:Json;private namingMetadata?:Json;
  private durableReleaseSupported=false;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
@@ -42,6 +52,11 @@ export class AdminConnection {
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
  constructor(private options:AdminOptions){}
  private idle(){try{this.options.onMayBeIdle?.();}catch{/* Advisory only; never change a completed operation result. */}}
+ private generationsChanged(params:Json){
+  const progress=this.generationsMetadata?.progress;
+  if(this.closed||this.generationsMetadata?.version!==1||!progress||Object.keys(progress).sort().join(',')!=='metadataOnly,notification,version'||progress.version!==1||progress.metadataOnly!==true||progress.notification!=='_amplifier/admin/generationsChanged'||Object.keys(params).join(',')!=='version'||params.version!==1)return;
+  try{this.options.onGenerationsChanged?.();}catch{/* Advisory only. */}
+ }
  private async start(){
   if(this.closed)throw Object.assign(Error('Native administration connection closed; no new request was dispatched. Inspect original receipts; earlier outcomes are unchanged.'),{data:{executed:false,replayed:false,reason:'native-admin-connection-closed'}});
   if(this.starting)return this.starting;
@@ -53,7 +68,7 @@ export class AdminConnection {
    await once(process_,'spawn');
    let bytes=0;const guard=new Transform({transform(chunk:Buffer,_encoding,callback){for(const byte of chunk){bytes=byte===10?0:bytes+1;if(bytes>2*1024*1024){callback(Error('Native admin frame exceeds 2 MiB'));return;}}callback(null,chunk);}});
    guard.on('error',()=>process_.kill());process_.stdout.pipe(guard);
-   this.client=new ClientSideConnection(()=>({extNotification:async(method,params)=>{if(method==='_amplifier/admin/idle'&&this.idleSupported&&params.version===1)this.idle();},sessionUpdate:async()=>{throw Error('Admin connection cannot own session updates.');},requestPermission:async()=>({outcome:{outcome:'cancelled' as const}})}),ndJsonStream(Writable.toWeb(process_.stdin) as WritableStream<Uint8Array>,Readable.toWeb(guard) as ReadableStream<Uint8Array>));
+   this.client=new ClientSideConnection(()=>({extNotification:async(method,params)=>{if(method==='_amplifier/admin/idle'&&this.idleSupported&&params.version===1)this.idle();if(method==='_amplifier/admin/generationsChanged')this.generationsChanged(params);},sessionUpdate:async()=>{throw Error('Admin connection cannot own session updates.');},requestPermission:async()=>({outcome:{outcome:'cancelled' as const}})}),ndJsonStream(Writable.toWeb(process_.stdin) as WritableStream<Uint8Array>,Readable.toWeb(guard) as ReadableStream<Uint8Array>));
    let initializationTimer:ReturnType<typeof setTimeout>|undefined;
    let init;
    try{
@@ -65,10 +80,16 @@ export class AdminConnection {
    const native=init.agentCapabilities?._meta?.['amplifier.dev/native'] as Json|undefined;
    if(init.protocolVersion!==1||native?.version!==1||native?.admin?.version!==1){await this.close();throw Object.assign(Error('Agent has no launcher-enabled native administration v1 capability.'),{data:{executed:false,replayed:false,reason:'native-admin-unavailable'}});}
    this.generationsMetadata=native.admin.generations?structuredClone(native.admin.generations):undefined;
+   this.capacityMetadata=native.taskState?.capacity?structuredClone(native.taskState.capacity):undefined;
+   this.storageRootsSupported=native.admin.storageRoots?.version===1&&native.admin.storageRoots.passive===true&&native.admin.storageRoots.launcherOwned===true;
    this.namingMetadata=native.naming?structuredClone(native.naming):undefined;
    this.contextMetadata=native.contextClear?structuredClone(native.contextClear):undefined;
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
    this.providerSignInMetadata=native.admin.providerSignIn?structuredClone(native.admin.providerSignIn):undefined;
+   this.configurationTargets=native.admin.configurationTargets?structuredClone(native.admin.configurationTargets):undefined;
+   this.imageMetadata=native.admin.imageSetup?structuredClone(native.admin.imageSetup):undefined;
+   this.imagePreferences=imagePreferencesMetadata(native.admin.imagePreferences)?structuredClone(native.admin.imagePreferences):undefined;
+   this.recordingMetadata=native.admin.providerRecording?structuredClone(native.admin.providerRecording):undefined;
    this.maintenanceMetadata=native.admin.maintenance?structuredClone(native.admin.maintenance):undefined;
    this.historyImportSupported=native.admin.historyImport?.version===1&&native.admin.historyImport?.staged===true;
    this.permissionsSupported=native.admin.permissions?.version===1&&native.admin.permissions?.cas===true&&native.admin.permissions?.receipt===true;
@@ -87,6 +108,22 @@ export class AdminConnection {
   finally{if(timer)clearTimeout(timer);}
  }
  /** Passive negotiated capability metadata; no runtime, archive inventory, or native settings reads. */
+ async capacityCapabilities(){
+  this.calls++;try{await this.start();return this.capacityMetadata?structuredClone(this.capacityMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ /** Optional passive launcher roots. Older peers are explicitly omitted. */
+ async storageRoots(context:Context):Promise<Json|undefined>{
+  this.calls++;try{await this.start();if(!this.storageRootsSupported)return undefined;return await this.perform('storage.roots',{},context);}finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ async configurationTargetCapabilities(){
+  this.calls++;try{await this.start();return configurationTargetsMetadata(this.configurationTargets)?structuredClone(this.configurationTargets):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ async imageSetupCapabilities(){
+  this.calls++;try{await this.start();return imageSetupMetadata(this.imageMetadata)?{...structuredClone(this.imageMetadata),...(this.imagePreferences?{preferences:structuredClone(this.imagePreferences)}:{})}:undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ async providerRecordingCapabilities(){
+  this.calls++;try{await this.start();return providerRecordingMetadata(this.recordingMetadata)?structuredClone(this.recordingMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
+ }
  async maintenanceCapabilities():Promise<Json|undefined>{
   this.calls++;try{await this.start();return this.maintenanceMetadata?structuredClone(this.maintenanceMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }
@@ -99,11 +136,11 @@ export class AdminConnection {
   this.calls++;try{await this.start();return namingMetadata(this.namingMetadata)?structuredClone(this.namingMetadata):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }
  /** Trusted Host history binding only; no worker or active session admission. */
- async performNaming(input:{sessionId:string;cwd:string;operation:'read'|'preview'|'prepare'|'rename'|'policy'|'commit'|'receipt';args:Json}):Promise<Json>{
-  if(!input||Object.keys(input).sort().join(',')!=='args,cwd,operation,sessionId'||typeof input.sessionId!=='string'||!input.sessionId||input.sessionId.length>200||/[\x00-\x1f]/.test(input.sessionId)||typeof input.cwd!=='string'||!input.cwd.startsWith('/')||input.cwd.length>8192||/[\x00-\x1f]/.test(input.cwd)||!['read','preview','prepare','rename','policy','commit','receipt'].includes(input.operation)||!input.args||typeof input.args!=='object'||Array.isArray(input.args)||Buffer.byteLength(JSON.stringify(input.args))>16384)throw Error('Exact bounded trusted naming selectors required');
+ async performNaming(input:{sessionId:string;cwd:string;operation:'read'|'preview'|'prepare'|'rename'|'policy'|'commit'|'receipt'|'backfill';args:Json}):Promise<Json>{
+  if(!input||Object.keys(input).sort().join(',')!=='args,cwd,operation,sessionId'||typeof input.sessionId!=='string'||!input.sessionId||input.sessionId.length>200||/[\x00-\x1f]/.test(input.sessionId)||typeof input.cwd!=='string'||!input.cwd.startsWith('/')||input.cwd.length>8192||/[\x00-\x1f]/.test(input.cwd)||!['read','preview','prepare','rename','policy','commit','receipt','backfill'].includes(input.operation)||!input.args||typeof input.args!=='object'||Array.isArray(input.args)||Buffer.byteLength(JSON.stringify(input.args))>16384)throw Error('Exact bounded trusted naming selectors required');
   const captured=structuredClone(input);
   if(this.held&&!['read','preview','receipt'].includes(captured.operation))throw fenced();
-  this.calls++;try{await this.start();if(!namingMetadata(this.namingMetadata))throw Error('Passive naming is unavailable on the configured Native peer');return await this.rpc('_amplifier/naming',captured);}finally{this.calls--;if(!this.calls)this.idle();}
+  this.calls++;try{await this.start();if(!namingMetadata(this.namingMetadata))throw Error('Passive naming is unavailable on the configured Native peer');if(captured.operation==='backfill'&&(this.namingMetadata?.backfill?.version!==1||this.namingMetadata.backfill.cold!==true||this.namingMetadata.backfill.boundedExcerpt!==true||this.namingMetadata.backfill.durableAttempts!==true))throw Error('Cold naming is unavailable on the configured Native peer');return await this.rpc('_amplifier/naming',captured);}finally{this.calls--;if(!this.calls)this.idle();}
  }
  /** Passive scoped sign-in metadata from this connection's actual initialized peer. */
  async providerSignInCapabilities():Promise<Json|undefined>{
@@ -145,6 +182,10 @@ export class AdminConnection {
   this.calls++;
   try{
    const cwd=importWorkspace??await this.options.resolveWorkspace(context);await this.start();
+   if(Object.hasOwn(args,'configurationTarget')){configurationTarget(args,operation,context.session?'session':'host');if(!configurationTargetsMetadata(this.configurationTargets))throw configurationTargetUnavailable();}
+   if(operation==='storage.roots'&&!this.storageRootsSupported)throw Error('Storage roots are unavailable on the configured Native peer');
+   if(IMAGE_OPERATIONS.includes(operation)&&!imageSetupMetadata(this.imageMetadata))throw imageSetupUnavailable();
+   if(operation==='providers.configureImages'&&Object.hasOwn(args,'mode')&&!imagePreferencesMetadata(this.imagePreferences))throw imageSetupUnavailable();
    if(signInSelectors(operation,args)&&(!validSignInSelectors(args)||!providerSignInMetadata(this.providerSignInMetadata)))throw signInSelectorsUnavailable();
    if(operation.startsWith('generations.')&&this.generationsMetadata?.version!==1)throw Object.assign(Error('Native runtime updates are unavailable for this installation; the trusted launcher must enable them.'),{data:{executed:false,replayed:false,reason:'native-generations-unavailable'}});
    if(['bundle.save','bundle.export','bundle.default'].includes(operation)&&args.commandId!==undefined&&(this.bundleMetadata?.version!==1||this.bundleMetadata?.passiveReceipt!==true))throw Object.assign(Error('Native bundle command identities are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'bundle-command-unavailable'}});
@@ -157,7 +198,20 @@ export class AdminConnection {
    if(operation.startsWith('maintenance.appReset.')&&(!APP_RESETS.has(operation)||this.maintenanceMetadata?.appReset?.version!==1||this.maintenanceMetadata.appReset.retainedUndo!==true))throw Object.assign(Error('Native app-local reset is unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'native-app-reset-unavailable'}});
    if(operation.startsWith('maintenance.capture.')&&(!CAPTURES.has(operation)||this.maintenanceMetadata?.captureScope?.version!==1))throw Object.assign(Error('Native continuous capture exclusion is unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'native-capture-unavailable'}});
    if(operation.startsWith('maintenance.cache.')&&(!CACHES.has(operation)||this.maintenanceMetadata?.cacheInventory?.version!==1))throw Object.assign(Error('Native cache inspection and reviewed clearing are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'native-cache-unavailable'}});
+   if(operation.startsWith('maintenance.backups.')){
+    const support=this.maintenanceMetadata?.backupCleanup;
+    if(!BACKUP_CLEANUP.has(operation)||!permitted||support?.version!==1||support.previewRequired!==true||support.receipt!==true||support.requiresRecoveryAdminLease!==true||support.newestProtected!==true||support.recoveryReferencesProtected!==true||support.automaticReplay!==false)throw Object.assign(Error('Backup cleanup requires negotiated native support and the exact held recovery scope.'),{data:{executed:false,replayed:false,reason:'native-backup-cleanup-unavailable'}});
+   }
+   if(operation.startsWith('maintenance.history.')){
+    const support=this.maintenanceMetadata?.historyCleanup;
+    if(!HISTORY_CLEANUP.has(operation)||!permitted||support?.version!==1||support.previewRequired!==true||support.receipt!==true||support.requiresRecoveryAdminLease!==true||support.trustedOwnerCensus!==true||support.workspacePreserved!==true||support.stableLocksPreserved!==true||support.automaticReplay!==false)throw Object.assign(Error('History cleanup requires negotiated native support and the exact held recovery scope.'),{data:{executed:false,replayed:false,reason:'native-history-cleanup-unavailable'}});
+   }
+   if(operation.startsWith('maintenance.workspace.')){
+    const support=this.maintenanceMetadata?.workspaceCleanup;
+    if(!WORKSPACE_CLEANUP.has(operation)||!permitted||support?.version!==1||support.previewRequired!==true||support.receipt!==true||support.requiresRecoveryAdminLease!==true||support.trustedOwnerCensus!==true||support.historyPreserved!==true||support.automaticReplay!==false)throw Object.assign(Error('Workspace cleanup requires negotiated native support and the exact held recovery scope.'),{data:{executed:false,replayed:false,reason:'native-workspace-cleanup-unavailable'}});
+   }
    if(IMPORTS.has(operation)&&!this.historyImportSupported)throw Object.assign(Error('Native history import is unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'history-import-unavailable'}});
+   if(operation.startsWith('provider.recording.')&&(!['provider.recording.get','provider.recording.configure','provider.recording.receipt'].includes(operation)||!providerRecordingMetadata(this.recordingMetadata)))throw Object.assign(Error('Provider recording policy is unavailable on the configured Native peer'),{data:{executed:false,replayed:false,reason:'provider-recording-unavailable'}});
    if(['voice.preferences.update','voice.preferences.receipt'].includes(operation)&&!this.voicePreferencesSupported)throw Object.assign(Error('Native shared voice preferences are unavailable on this configured engine.'),{data:{executed:false,replayed:false,reason:'voice-preferences-unavailable'}});
    const {sessionId:_,id,...values}=args;if(id!==undefined)values.id=id;
    if('home' in values||'appHome' in values||'cwd' in values&&!(permitted&&operation==='maintenance.reset.preview'))throw Error('Native administration launch authority cannot be supplied by clients.');

@@ -1,5 +1,7 @@
 /** Scoped public action schemas; session authority is trusted host context. */
 export const ACTION_SCHEMAS:Record<string,{description:string;schema:Record<string,any>}>= {
+ "providers.imageModels":{description:"Read the selected account's image model catalog without generating images or listing chat models",schema:{type:"object",properties:{id:{type:"string",minLength:1,maxLength:200},refresh:{type:"boolean"},sessionId:{type:"string",maxLength:8192}},required:["id"],additionalProperties:false}},
+ "providers.configureImages":{description:"Configure image generation independently of chat models and credentials; exclusive selects one image connection",schema:{type:"object",properties:{id:{type:"string",minLength:1,maxLength:200},enabled:{type:"boolean"},model:{type:"string",maxLength:400},exclusive:{type:"boolean"},scope:{enum:["global","project","local"]},sessionId:{type:"string",maxLength:8192}},required:["id","enabled"],additionalProperties:false}},
  "session.titlePreview":{description:"Read a bounded first-message label for an unnamed chat without renaming or executing it",schema:{type:"object",properties:{id:{type:"string",maxLength:8192},sessionId:{type:"string",maxLength:8192}},additionalProperties:false}},
  "session.naming":{description:"Generate a conversation name once or update automatic naming policy with canonical revision protection",schema:{type:"object",properties:{id:{type:"string",maxLength:8192},sessionId:{type:"string",maxLength:8192},regenerate:{const:true},automatic:{type:"boolean"}},oneOf:[{required:["regenerate"],not:{required:["automatic"]}},{required:["automatic"],not:{required:["regenerate"]}}],additionalProperties:false}},
  "context.clear.review":{description:"Review history-preserving context clear for the selected session",schema:{type:"object",properties:{},additionalProperties:false}},
@@ -870,6 +872,20 @@ export const ACTION_SCHEMAS:Record<string,{description:string;schema:Record<stri
       ],
       "additionalProperties": false
     }
+  },
+  "capacity.read": {
+    "description": "Read persisted conversation usage and budget without starting a model or runtime worker.",
+    "schema": {"type": "object", "additionalProperties": false,
+    "properties": {"sessionId":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}}
+  },
+  "capacity.set": {
+    "description": "Update the budget checked before subsequent model calls. Does not send or resume a turn.",
+    "schema": {"type": "object", "additionalProperties": false, "required":["expectedRevision"],
+    "properties": {"sessionId":{"type":"string"},"expectedRevision":{"type":"integer","minimum":0},"enabled":{"type":"boolean"},"maxTotalTokens":{"type":["integer","null"],"minimum":1},"maxCostUsd":{"type":["number","null"],"exclusiveMinimum":0},"warningFraction":{"type":"number","exclusiveMinimum":0,"maximum":1},"unknownPolicy":{"enum":["pause","allow"]},"includeEstimatedCost":{"type":"boolean"}}}
+  },
+  "capacity.quota": {
+    "description": "Inspect provider-reported account limits. A missing capability is not zero usage.",
+    "schema": {"type": "object", "additionalProperties": false,"properties":{"sessionId":{"type":"string"}}}
   },
   "runtime.control": {
     "description": "Manage runtime modes, goals, provider, budgets, skills and tools",

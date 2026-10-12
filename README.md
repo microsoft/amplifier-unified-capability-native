@@ -445,6 +445,27 @@ does not authorize a pre-retirement abort. The Native admin participant projects
 Host fence bookkeeping to canonical selectors; direct Native abort and proof
 validation remain strict.
 
+## Provider request recording
+
+`createProviderRecordingCapabilities` exposes a host setting only when the
+initialized Native administration peer advertises the exact recording descriptor.
+Bind `nativeCapabilities` to `admin.providerRecordingCapabilities()` and use the
+same `AdminConnection.perform` route and quiescence participant as other Native
+administration. No additional settings database, worker or writer is created.
+
+The UI and agents share `diagnostics.recording.get/configure/receipt`. Configure
+requires the saved revision, a boolean choice and the original durable action
+identity. Native preserves existing diagnostic configuration and explicit
+provider opt-outs. The choice applies at the next runtime preparation; existing
+calls cannot be reconstructed. Interrupted writes are inspected through their
+original receipts, never silently repeated. A missing or disabled Native grant
+does not advertise this control.
+
+Set `AMPLIFIER_RECORDING_PYTHON` to an independently installed Native adapter
+to run the real subprocess, replacement, held-intake and receipt checks in
+`test/provider-recording.test.ts`. These do not prove a real provider recorded
+a request; browser and provider acceptance remain separate.
+
 ## Canonical conversation naming
 
 Bind `nativeNamingCapabilities` to the genuine peer's initialize naming marker,
@@ -482,3 +503,38 @@ remain available during held intake, while rename, policy and commit are fenced.
 Selectors are captured before initialization awaits. These ports do not create a
 worker, generator, journal or additional quiescence participant. The Host owns
 selected history binding, title serialization and UI projection.
+
+Optional `backfill` is admitted only when the genuine peer advertises cold,
+bounded-excerpt, durable-attempt naming support. It takes empty arguments and
+remains tracked by the same admin participant for the entire provider request.
+Held intake refuses it. Native owns eligibility, provider selection and attempt
+receipts; the bridge adds neither a scheduler nor automatic effect retries.
+
+Image setup uses the initialized peer's optional `admin.imageSetup` grant and
+separate image-model discovery. See [the bridge contract](contracts/native-bridge.v1.md#optional-image-setup).
+`test/image-setup.test.ts` covers user/agent routing and stale catalog rejection;
+set `AMPLIFIER_ACP_PYTHON` and `AMPLIFIER_IMAGE_OLD_PYTHON` for actual installed
+peer negotiation. No image-generation request is issued by these tests.
+
+Reviewed workspace folder cleanup is available only when Native advertises the
+complete `admin.maintenance.workspaceCleanup` v1 contract. Its preview and remove
+operations require the exact trusted recovery maintenance fence. Passive original
+receipts never acquire authority or repeat removal; metadata settlement lives in
+the product owners and does not grant this bridge a new maintenance scope.
+
+### Reviewed shared history cleanup
+
+The passive administration bridge permits `maintenance.history.census`,
+`maintenance.history.preview`, and `maintenance.history.remove` only inside the
+original held Recovery callback and after exact native capability negotiation.
+Native owns canonical bytes, inventory, protected histories and receipts. Host
+and Recovery own reference coverage, review and navigation settlement. These
+operations grant no ordinary client or agent administration rights; missing peer
+support or an unrelated hold refuses before dispatch. Workspace files and stable
+locks remain preserved. See `test/admin-history-cleanup.test.ts`.
+
+The message forwarding participant also advertises read-only Recovery reference
+inspection on its original live hold. It has no deferred work; all saved message
+metadata remains Native-owned. Multiple bounded batches are supported while the
+shared hold excludes writers. Stale, unknown and released holds cannot inspect;
+retention-hide and managed-file mutation selection binding stays unchanged.

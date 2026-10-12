@@ -1,5 +1,5 @@
 /** Optional account-bound passive native message metadata. No session/worker admission. */
-import {MessageAdmission} from './message-admission.js';
+import {MessageAdmission,type MessageFenceContext,type MessageHeld} from './message-admission.js';
 import {nativeRefusal} from './refusals.js';
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {once} from 'node:events';
@@ -7,7 +7,7 @@ import {Readable,Writable,Transform} from 'node:stream';
 import {ClientSideConnection,ndJsonStream} from '@agentclientprotocol/sdk';
 import type {Context,Json,RecordValue} from './index.js';
 import {validateServiceRelease,serviceIdentity,evidenceKey} from './service-lifecycle.js';
-import type {AdminFenceContext,AdminReleaseProof,AdminServiceReleaseProof,AdminAdmissionAbortProof,AdminAdmissionAbortReceipt} from './admin.js';
+import type {AdminReleaseProof,AdminServiceReleaseProof,AdminAdmissionAbortProof,AdminAdmissionAbortReceipt} from './admin.js';
 const KEY='amplifier.dev/messagePrincipal',EMOJI=['👍','❤️','😂','🎉','😮','😢','👎','✅'];
 const refused=(message:string)=>Object.assign(Error(message),{data:{executed:false,replayed:false,reason:'message-authority-unavailable'}});
 const token=(value:unknown,max=200):value is string=>typeof value==='string'&&[...value].length>0&&[...value].length<=max&&!/[\x00-\x1f]/.test(value);
@@ -26,7 +26,7 @@ export interface MessageOptions {
 }
 export class MessageConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<boolean>;private closed=false;
- private metadata?:Json;private calls=0;private held?:{context:Readonly<AdminFenceContext>;phase:'held'|'unknown'};private uncertain=false;
+ private metadata?:Json;private calls=0;private held?:MessageHeld;private uncertain=false;
  private releases=new Map<string,string>();private admission?:MessageAdmission;
  private bindings=new Map<string,{scope:string;cwd:string;work:Promise<void>}>();
  private scopes=new Map<string,{scope:string;cwd:string}>();private listeners=new Set<(scope:string,value:Json)=>void>();
@@ -45,20 +45,20 @@ export class MessageConnection {
  capabilities=async():Promise<Json|undefined>=>this.tracked(async()=>await this.start()?structuredClone(this.metadata):undefined,true);
  activity=()=>({calls:this.calls,intakeClosed:!!this.held||this.uncertain||this.closed,uncertain:this.uncertain,closed:this.closed});
  private async tracked<T>(work:()=>Promise<T>,initializationOnly=false):Promise<T>{if(this.held&&!initializationOnly||this.uncertain)throw refused('Message intake is fenced; no new native request dispatched');this.calls++;try{return await work();}finally{this.calls--;if(!this.calls)try{this.options.onMayBeIdle?.();}catch{/* Advisory only. */}}}
- private fenceContext(value:Readonly<AdminFenceContext>):Readonly<AdminFenceContext>{
+ private fenceContext(value:Readonly<MessageFenceContext>):Readonly<MessageFenceContext>{
   const context={fenceId:value.fenceId,commandId:value.commandId,purpose:value.purpose,instanceId:value.instanceId,dataScope:value.dataScope,...(value.serviceIdentity!==undefined?{serviceIdentity:serviceIdentity(value.serviceIdentity)}:{})};
   for(const key of ['fenceId','commandId','purpose','instanceId','dataScope'] as const)if(!token(context[key]))throw refused('Exact bounded message fence required');
-  if(!['recovery','distribution-update','service-stop'].includes(context.purpose))throw refused('Unsupported message fence purpose');
+  if(!['recovery','distribution-update','service-stop','retention-hide','managed-files-disposal'].includes(context.purpose))throw refused('Unsupported message fence purpose');
   if(context.purpose==='service-stop'){if(!context.serviceIdentity||context.serviceIdentity.instanceId!==context.instanceId||context.serviceIdentity.dataScope!==context.dataScope)throw refused('Message service identity differs');}
   else if(context.serviceIdentity)throw refused('Service identity requires service-stop purpose');
   return context;
  }
- private releaseProof(context:Readonly<AdminFenceContext>,outcome:'unchanged'|'ready',proof:unknown){
+ private releaseProof(context:Readonly<MessageFenceContext>,outcome:'unchanged'|'ready',proof:unknown){
   if(!['unchanged','ready'].includes(outcome)||!object(proof)||Buffer.byteLength(evidenceKey(proof))>32768)throw refused('Bounded authenticated exact message release proof required');
   if(context.purpose==='service-stop')validateServiceRelease(context,outcome,proof);
   else{const keys=['verified','fenceId','commandId','outcome','instanceId','dataScope','receiptId'];if(Object.keys(proof).length!==keys.length||Object.keys(proof).some(k=>!keys.includes(k))||proof.verified!==true||proof.fenceId!==context.fenceId||proof.commandId!==context.commandId||proof.dataScope!==context.dataScope||proof.outcome!==outcome||!token(proof.receiptId)||!token(proof.instanceId)||(outcome==='unchanged'?proof.instanceId!==context.instanceId:proof.instanceId===context.instanceId))throw refused('Authenticated exact message release proof required');}
  }
- private async release(context:Readonly<AdminFenceContext>,outcome:'unchanged'|'ready'|'unknown',proof?:AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'},liveRollback=false){
+ private async release(context:Readonly<MessageFenceContext>,outcome:'unchanged'|'ready'|'unknown',proof?:AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'},liveRollback=false){
   if(this.calls||this.closed)throw refused('Message intake cannot be released while busy or closed');
   const held=this.held,evidence=evidenceKey({context,outcome,proof}),prior=this.releases.get(context.fenceId)??this.admission?.releaseEvidence(context.fenceId);
   if(Buffer.byteLength(evidence)>32768)throw refused('Message release evidence exceeds its bound');
@@ -73,13 +73,15 @@ export class MessageConnection {
    this.held=undefined;this.uncertain=false;
   }catch(error){held.phase='unknown';this.uncertain=true;this.admission?.saveHeld(held);throw error;}
  }
- get quiescenceParticipant(){return{id:this.options.ownerId??'native-message-metadata',serviceStop:{version:1 as const},acquire:async(value:Readonly<AdminFenceContext>)=>{
+ get quiescenceParticipant(){return{id:this.options.ownerId??'native-message-metadata',serviceStop:{version:1 as const},retentionHide:{version:1 as const},recoveryReferences:{version:1 as const},managedFiles:{version:1 as const,preservesCanonical:true as const},acquire:async(value:Readonly<MessageFenceContext>)=>{
   const context=this.fenceContext(value);
   if(this.admission){if(!this.admission.acquire(context,!!(this.calls||this.uncertain||this.closed||this.held)))return null;}
   else if(this.calls||this.uncertain||this.closed||this.held)return null;
   if(this.releases.has(context.fenceId))throw refused('Completed message fence identity cannot be acquired again');this.held={context,phase:'held'};
-  return{ownerId:this.options.ownerId??'native-message-metadata',fenceId:context.fenceId,release:(outcome:'unchanged'|'ready'|'unknown',proof?:AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'})=>this.release(context,outcome,proof,true)};
- },abortAdmission:(input:Readonly<AdminFenceContext>&{proof:AdminAdmissionAbortProof})=>this.abortAdmission(input),reconcileRelease:async(input:Readonly<AdminFenceContext>&{outcome:'unchanged'|'ready';proof:AdminReleaseProof|AdminServiceReleaseProof})=>{
+  return{ownerId:this.options.ownerId??'native-message-metadata',fenceId:context.fenceId,release:(outcome:'unchanged'|'ready'|'unknown',proof?:AdminReleaseProof|AdminServiceReleaseProof|{kind:'admission-refused'})=>this.release(context,outcome,proof,true),
+   ...(['retention-hide','recovery'].includes(context.purpose)?{inspectRetentionReferences:async(selection:unknown)=>this.inspectReferences(context,selection)}:{}),
+   ...(context.purpose==='managed-files-disposal'?{inspectManagedFilesReferences:async(selection:unknown)=>this.inspectReferences(context,selection)}:{})};
+ },abortAdmission:(input:Readonly<MessageFenceContext>&{proof:AdminAdmissionAbortProof})=>this.abortAdmission(input),reconcileRelease:async(input:Readonly<MessageFenceContext>&{outcome:'unchanged'|'ready';proof:AdminReleaseProof|AdminServiceReleaseProof})=>{
   try{
    const context=this.fenceContext(input),outcome=input.outcome,proof=structuredClone(input.proof);
    // Only the host's authenticated proof can settle a persisted prior fence. No
@@ -90,7 +92,26 @@ export class MessageConnection {
    await this.release(context,outcome,proof);
   }catch(error){if(this.held){this.held.phase='unknown';this.uncertain=true;this.admission?.saveHeld(this.held);}throw error;}
  }};}
- async abortAdmission(input:Readonly<AdminFenceContext>&{proof:AdminAdmissionAbortProof}):Promise<AdminAdmissionAbortReceipt>{
+ private inspectReferences(context:Readonly<MessageFenceContext>,value:unknown){
+  const held=this.held,managed=context.purpose==='managed-files-disposal';
+  if(!held||held.phase!=='held'||this.calls||this.uncertain||this.closed||evidenceKey(held.context)!==evidenceKey(context))throw refused('Exact live message maintenance hold required');
+  if(!object(value)||Object.keys(value).sort().join(',')!==(managed?'allocation,limit,sessions':'limit,sessions'))throw refused('Exact bounded maintenance selection required');
+  const {sessions,limit,allocation}=value;
+  if(!Array.isArray(sessions)||!sessions.length||sessions.length>101||limit!==101||new Set(sessions).size!==sessions.length||sessions.some(s=>typeof s!=='string'||!/^ahp-session:\/[^\s\x00-\x1f]{1,480}$/.test(s)))throw refused('Bounded selected maintenance family required');
+  if(managed&&(!object(allocation)||Object.keys(allocation).sort().join(',')!=='allocationHash,allocationId,bytes,entryCount,executionDirectory,treeHash'||!/^([a-f0-9]{8})(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(allocation.allocationId)||!['allocationHash','treeHash'].every(k=>typeof allocation[k]==='string'&&/^[a-f0-9]{64}$/.test(allocation[k]))||!['entryCount','bytes'].every(k=>Number.isSafeInteger(allocation[k])&&allocation[k]>=0)||typeof allocation.executionDirectory!=='string'||!allocation.executionDirectory.startsWith('/')||allocation.executionDirectory.length>8192||/[\x00-\x1f]/.test(allocation.executionDirectory)))throw refused('Exact bounded managed allocation required');
+  // Recovery can inspect multiple bounded batches while the same global hold
+  // excludes every message writer. It grants no selection-bound mutation.
+  if(context.purpose==='recovery')return {coverage:'complete' as const,protected:[],omissions:[]};
+  const selection=evidenceKey(value);
+  if(held.selection!==undefined&&held.selection!==selection)throw refused('Message maintenance selection changed');
+  // Store the selected identity before returning proof. A failed durable write
+  // leaves admission held and cannot claim complete reference coverage.
+  const selected={...held,selection};this.admission?.saveHeld(selected);this.held=selected;
+  // This owner forwards only immediate metadata calls, with no deferred file
+  // work. Native owns all retained messages and the independent family lease.
+  return {coverage:'complete' as const,protected:[],omissions:[]};
+ }
+ async abortAdmission(input:Readonly<MessageFenceContext>&{proof:AdminAdmissionAbortProof}):Promise<AdminAdmissionAbortReceipt>{
   const context=this.fenceContext(input),proof=input.proof;
   const keys=['commandId','fenceId','instanceId','dataScope','purpose','kind','verified','receiptId'];
   if(context.purpose!=='distribution-update'||!proof||Object.keys(proof).sort().join(',')!==keys.sort().join(',')||proof.kind!=='distribution-admission-abort'||proof.verified!==true||!token(proof.receiptId)||['commandId','fenceId','instanceId','dataScope','purpose'].some(k=>(proof as any)[k]!==(context as any)[k]))throw refused('Exact authenticated message admission abort proof required');
