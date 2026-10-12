@@ -236,6 +236,16 @@ with `executed:false`, `replayed:false`, and `native-generations-unavailable`.
 This connection never enables the launcher grant. Maintenance permission alone
 does not grant generation operations.
 
+The optional closed `generations.progress` marker is
+`{version:1,metadataOnly:true,notification:"_amplifier/admin/generationsChanged"}`.
+Only after negotiating it does `AdminConnection` accept the same named extension
+notification with exactly `{version:1}` and call trusted
+`onGenerationsChanged`. It is an advisory invalidation, never a receipt or effect
+proof. It performs no native read or mutation and ignores observer errors.
+Composition may invalidate the maintenance owner's selected bounded projection;
+the native owner still supplies every phase and original operation receipt.
+Unknown fields, older peers and notifications before negotiation are ignored.
+
 ## Passive account-bound message metadata
 
 `createMessageCapabilities(options)` returns `{connection,capabilities}`. Trusted

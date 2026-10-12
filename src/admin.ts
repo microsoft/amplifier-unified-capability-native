@@ -20,6 +20,8 @@ export interface AdminOptions {
  initializationTimeoutMs?:number;
  ownerId?:string;
  onMayBeIdle?:()=>void;
+ /** Advisory metadata invalidation from a negotiated peer; never an outcome. */
+ onGenerationsChanged?:()=>void;
 }
 export interface AdminAdmissionAbortProof {kind:'distribution-admission-abort';verified:true;purpose:'distribution-update';commandId:string;fenceId:string;instanceId:string;dataScope:string;receiptId:string}
 export interface AdminAdmissionAbortReceipt {ownerId:string;status:'released'|'not-acquired';receiptId:string;commandId:string;fenceId:string;instanceId:string;dataScope:string}
@@ -50,6 +52,11 @@ export class AdminConnection {
  private maintenance=new AsyncLocalStorage<{active:boolean;fenceId:string;commandId:string}>();
  constructor(private options:AdminOptions){}
  private idle(){try{this.options.onMayBeIdle?.();}catch{/* Advisory only; never change a completed operation result. */}}
+ private generationsChanged(params:Json){
+  const progress=this.generationsMetadata?.progress;
+  if(this.closed||this.generationsMetadata?.version!==1||!progress||Object.keys(progress).sort().join(',')!=='metadataOnly,notification,version'||progress.version!==1||progress.metadataOnly!==true||progress.notification!=='_amplifier/admin/generationsChanged'||Object.keys(params).join(',')!=='version'||params.version!==1)return;
+  try{this.options.onGenerationsChanged?.();}catch{/* Advisory only. */}
+ }
  private async start(){
   if(this.closed)throw Object.assign(Error('Native administration connection closed; no new request was dispatched. Inspect original receipts; earlier outcomes are unchanged.'),{data:{executed:false,replayed:false,reason:'native-admin-connection-closed'}});
   if(this.starting)return this.starting;
@@ -61,7 +68,7 @@ export class AdminConnection {
    await once(process_,'spawn');
    let bytes=0;const guard=new Transform({transform(chunk:Buffer,_encoding,callback){for(const byte of chunk){bytes=byte===10?0:bytes+1;if(bytes>2*1024*1024){callback(Error('Native admin frame exceeds 2 MiB'));return;}}callback(null,chunk);}});
    guard.on('error',()=>process_.kill());process_.stdout.pipe(guard);
-   this.client=new ClientSideConnection(()=>({extNotification:async(method,params)=>{if(method==='_amplifier/admin/idle'&&this.idleSupported&&params.version===1)this.idle();},sessionUpdate:async()=>{throw Error('Admin connection cannot own session updates.');},requestPermission:async()=>({outcome:{outcome:'cancelled' as const}})}),ndJsonStream(Writable.toWeb(process_.stdin) as WritableStream<Uint8Array>,Readable.toWeb(guard) as ReadableStream<Uint8Array>));
+   this.client=new ClientSideConnection(()=>({extNotification:async(method,params)=>{if(method==='_amplifier/admin/idle'&&this.idleSupported&&params.version===1)this.idle();if(method==='_amplifier/admin/generationsChanged')this.generationsChanged(params);},sessionUpdate:async()=>{throw Error('Admin connection cannot own session updates.');},requestPermission:async()=>({outcome:{outcome:'cancelled' as const}})}),ndJsonStream(Writable.toWeb(process_.stdin) as WritableStream<Uint8Array>,Readable.toWeb(guard) as ReadableStream<Uint8Array>));
    let initializationTimer:ReturnType<typeof setTimeout>|undefined;
    let init;
    try{
