@@ -8,6 +8,26 @@ The schema owners define wire details; this document does not copy them.
 
 ## Public boundary and consumers
 
+Configuration owner selection is optional and negotiated from the actual Native
+administration initialize result. The closed `configurationTargets` v1 marker
+requires `globalOnly`, `workspaceBound`, and `isolatedResults` to be true. It is
+advertised on `configuration` and `provider-catalog` topics only after negotiation.
+Provider, routing, module and source operations may then use one explicit
+`configurationTarget`: global settings, or a registered opaque workspace ID.
+The distribution resolves workspace IDs through its authorized catalog and Host;
+the bridge accepts neither paths nor mixed session/workspace selectors.
+
+These operations use the root administration route for users and agents alike.
+An originating agent session remains Host admission context, never the settings
+owner. Global writes use global scope; workspace writes use local or project
+scope. Records, caches, model catalogs, status and sign-in attempts retain the
+explicit owner. Each Native response must confirm it. A mismatched response is
+ambiguous after dispatch, not evidence that no effect occurred. Old peers refuse
+explicit owners before administration RPC, rather than falling back to the chat.
+The optional selectors do not change ordinary selected-session configuration.
+See `test/configuration-target.test.ts` and the independently installed Native
+fixture in `test/configuration-target.integration.test.ts`.
+
 The optional `provider-recording` topic is a host-scoped projection of Native's
 existing diagnostics configuration. Its descriptor is exactly
 `{version:1,cas:true,receipt:true,application:"next-runtime-preparation"}`.

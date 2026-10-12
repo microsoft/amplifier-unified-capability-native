@@ -1,3 +1,4 @@
+import {configurationTargetsMetadata,configurationTarget,configurationTargetUnavailable} from './configuration-target.js';
 import {imageSetupMetadata,imagePreferencesMetadata,IMAGE_OPERATIONS,imageSetupUnavailable} from './image-setup.js';
 import {providerRecordingMetadata} from './provider-recording.js';
 import {namingMetadata} from './naming.js';
@@ -40,7 +41,7 @@ const fenced=()=>Object.assign(Error('Native administration intake is held; no n
 export class AdminConnection {
  private process?:ChildProcessWithoutNullStreams;private client?:ClientSideConnection;private starting?:Promise<void>;private closed=false;private tail='';private lifecycleSupported=false;private admissionAbortSupported=false;private serviceStopSupported=false;private idleSupported=false;private historyImportSupported=false;private voicePreferencesSupported=false;private permissionsSupported=false;private maintenanceMetadata?:Json;private bundleMetadata?:Json;private contextMetadata?:Json;private generationsMetadata?:Json;private calls=0;
  private capacityMetadata?:Json;private storageRootsSupported=false;
- private recordingMetadata?:Json;private imageMetadata?:Json;private imagePreferences?:Json;
+ private configurationTargets?:Json;private recordingMetadata?:Json;private imageMetadata?:Json;private imagePreferences?:Json;
  private providerSignInMetadata?:Json;private namingMetadata?:Json;
  private durableReleaseSupported=false;
  private held?:{context:AdminFenceContext;phase:'checking'|'held'|'unknown';leaseId?:string;adminInstanceId?:string};
@@ -78,6 +79,7 @@ export class AdminConnection {
    this.contextMetadata=native.contextClear?structuredClone(native.contextClear):undefined;
    this.bundleMetadata=native.bundleCommands?structuredClone(native.bundleCommands):undefined;
    this.providerSignInMetadata=native.admin.providerSignIn?structuredClone(native.admin.providerSignIn):undefined;
+   this.configurationTargets=native.admin.configurationTargets?structuredClone(native.admin.configurationTargets):undefined;
    this.imageMetadata=native.admin.imageSetup?structuredClone(native.admin.imageSetup):undefined;
    this.imagePreferences=imagePreferencesMetadata(native.admin.imagePreferences)?structuredClone(native.admin.imagePreferences):undefined;
    this.recordingMetadata=native.admin.providerRecording?structuredClone(native.admin.providerRecording):undefined;
@@ -105,6 +107,9 @@ export class AdminConnection {
  /** Optional passive launcher roots. Older peers are explicitly omitted. */
  async storageRoots(context:Context):Promise<Json|undefined>{
   this.calls++;try{await this.start();if(!this.storageRootsSupported)return undefined;return await this.perform('storage.roots',{},context);}finally{this.calls--;if(!this.calls)this.idle();}
+ }
+ async configurationTargetCapabilities(){
+  this.calls++;try{await this.start();return configurationTargetsMetadata(this.configurationTargets)?structuredClone(this.configurationTargets):undefined;}finally{this.calls--;if(!this.calls)this.idle();}
  }
  async imageSetupCapabilities(){
   this.calls++;try{await this.start();return imageSetupMetadata(this.imageMetadata)?{...structuredClone(this.imageMetadata),...(this.imagePreferences?{preferences:structuredClone(this.imagePreferences)}:{})}:undefined;}finally{this.calls--;if(!this.calls)this.idle();}
@@ -170,6 +175,7 @@ export class AdminConnection {
   this.calls++;
   try{
    const cwd=importWorkspace??await this.options.resolveWorkspace(context);await this.start();
+   if(Object.hasOwn(args,'configurationTarget')){configurationTarget(args,operation,context.session?'session':'host');if(!configurationTargetsMetadata(this.configurationTargets))throw configurationTargetUnavailable();}
    if(operation==='storage.roots'&&!this.storageRootsSupported)throw Error('Storage roots are unavailable on the configured Native peer');
    if(IMAGE_OPERATIONS.includes(operation)&&!imageSetupMetadata(this.imageMetadata))throw imageSetupUnavailable();
    if(operation==='providers.configureImages'&&Object.hasOwn(args,'mode')&&!imagePreferencesMetadata(this.imagePreferences))throw imageSetupUnavailable();
