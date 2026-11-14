@@ -1,5 +1,7 @@
 # Repository owner entry
 
+This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
+
 Read [local vision](docs/VISION.md), [native bridge v1 contract](contracts/native-bridge.v1.md)
 and [README](README.md) before changing the public boundary. These link the
 approved family direction and schema owners; do not duplicate upstream AHP/ACP
