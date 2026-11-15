@@ -53,6 +53,27 @@ uncertain result must be inspected through their owner, not automatically repeat
 - [Permissions](src/permissions.ts) and [message controls](src/messages.ts)
 - [Contributor entry](AGENTS.md)
 
+
+<!-- ecosystem-map:start -->
+## Where this fits
+
+An optional host integration for native Amplifier controls, with execution remaining in the ACP agent.
+
+Supports: Agent Instance, Tool, Experience.
+
+![Ecosystem roles and component relationships](docs/ecosystem-map.svg)
+
+[Open the map](docs/ecosystem-map.svg) · [Product page source (private)](docs/product/index.html) · [Map guide](https://github.com/microsoft/amplifier-constellation/blob/main/docs/ecosystem-maps.md)
+
+<details>
+<summary>The five shared building blocks</summary>
+
+[![Experience, Conversation, Agent Instance, Connection and Tool](https://raw.githubusercontent.com/microsoft/amplifier-constellation/main/site/assets/art/building-blocks.png)](https://microsoft.github.io/amplifier-constellation/)
+
+</details>
+
+<!-- ecosystem-map:end -->
+
 ## Contributing
 
 Most contributions require you to agree to a
