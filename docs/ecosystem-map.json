@@ -1,0 +1,98 @@
+{
+  "citations": [
+    {
+      "git_blob": "cebb76d94d94b0e77f480b41aec93ac1cbd414bc",
+      "path": "README.md",
+      "ref": "39b63bb157108bbd3e508473863795ac3ac44baf",
+      "sha256": "5f4c9fda5f058f30ebdcd856051aaab2652537cd0cddc2dae9d62e54c3ef3254",
+      "url": "https://github.com/microsoft/amplifier-unified-capability-native/blob/39b63bb157108bbd3e508473863795ac3ac44baf/README.md"
+    },
+    {
+      "git_blob": "05f934471c3f68f291de985a18473964a037650e",
+      "path": "contracts/native-bridge.v1.md",
+      "ref": "39b63bb157108bbd3e508473863795ac3ac44baf",
+      "sha256": "1970e2f36ebfaa8406438c9cdff6325662411e7fb46e2298cd499d1ea5703533",
+      "url": "https://github.com/microsoft/amplifier-unified-capability-native/blob/39b63bb157108bbd3e508473863795ac3ac44baf/contracts/native-bridge.v1.md"
+    }
+  ],
+  "consumer_cta": {
+    "basis": "Existing approved README route; target release assets/availability not freshly audited in this plan.",
+    "label": "Integrate native controls",
+    "url": "https://github.com/microsoft/amplifier-unified-capability-native#get-started"
+  },
+  "display_name": "Amplifier Unified Native Capabilities",
+  "edges": [
+    {
+      "from": "self",
+      "relation": "contains",
+      "to": "bridge"
+    },
+    {
+      "from": "self",
+      "relation": "contains",
+      "to": "admin"
+    },
+    {
+      "from": "host",
+      "relation": "integrates",
+      "to": "self"
+    },
+    {
+      "from": "self",
+      "relation": "uses",
+      "to": "agent"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "self",
+      "kind": "self",
+      "label": "Amplifier Unified Native Capabilities",
+      "repository": "microsoft/amplifier-unified-capability-native"
+    },
+    {
+      "id": "bridge",
+      "kind": "internal",
+      "label": "Native control capability factory"
+    },
+    {
+      "id": "admin",
+      "kind": "internal",
+      "label": "Optional AdminConnection"
+    },
+    {
+      "id": "host",
+      "kind": "external",
+      "label": "Composing AHP host",
+      "repository": "microsoft/amplifier-unified-host"
+    },
+    {
+      "id": "agent",
+      "kind": "external",
+      "label": "Amplifier ACP Agent",
+      "repository": "microsoft/amplifier-app-acp"
+    }
+  ],
+  "notes": [
+    "Does not implement an agent runtime; available controls depend on negotiated ACP peer support.",
+    "AdminConnection is optional and requires trusted workspace authorization.",
+    "The package is an optional host capability, not an unconditional dependency of all Agent Instances."
+  ],
+  "purpose": "Connect a Unified host to Amplifier provider, bundle and session controls.",
+  "ref": "39b63bb157108bbd3e508473863795ac3ac44baf",
+  "repository": "microsoft/amplifier-unified-capability-native",
+  "roles": [],
+  "scope": "optional host capability",
+  "start_cta": {
+    "basis": "Existing approved README route; target release assets/availability not freshly audited in this plan.",
+    "label": "Integrate native controls",
+    "url": "https://github.com/microsoft/amplifier-unified-capability-native#get-started"
+  },
+  "summary": "An optional host integration for native Amplifier controls, with execution remaining in the ACP agent.",
+  "supports_roles": [
+    "Agent Instance",
+    "Tool",
+    "Experience"
+  ],
+  "visibility": "private"
+}
