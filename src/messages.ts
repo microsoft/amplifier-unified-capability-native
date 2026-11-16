@@ -2,6 +2,7 @@
 import {MessageAdmission} from './message-admission.js';
 import {nativeRefusal} from './refusals.js';
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
+import {once} from 'node:events';
 import {Readable,Writable,Transform} from 'node:stream';
 import {ClientSideConnection,ndJsonStream} from '@agentclientprotocol/sdk';
 import type {Context,Json,RecordValue} from './index.js';
@@ -38,9 +39,12 @@ export class MessageConnection {
  }
  onUpdate(listener:(scope:string,value:Json)=>void){this.listeners.add(listener);return()=>this.listeners.delete(listener);}
  private authority(context:Context){if(context.account!==this.options.account||!context.session?.uri?.startsWith('ahp-session:/'))throw refused('Authenticated account and selected session required');}
- capabilities=async():Promise<Json|undefined>=>this.tracked(async()=>await this.start()?structuredClone(this.metadata):undefined);
+ // Replacement composition must discover this owner before the host can settle
+ // its retained fence. Only initialize metadata may cross that fence; unknown
+ // message effects and every history/message operation remain blocked.
+ capabilities=async():Promise<Json|undefined>=>this.tracked(async()=>await this.start()?structuredClone(this.metadata):undefined,true);
  activity=()=>({calls:this.calls,intakeClosed:!!this.held||this.uncertain||this.closed,uncertain:this.uncertain,closed:this.closed});
- private async tracked<T>(work:()=>Promise<T>):Promise<T>{if(this.held||this.uncertain)throw refused('Message intake is fenced; no new native request dispatched');this.calls++;try{return await work();}finally{this.calls--;if(!this.calls)try{this.options.onMayBeIdle?.();}catch{/* Advisory only. */}}}
+ private async tracked<T>(work:()=>Promise<T>,initializationOnly=false):Promise<T>{if(this.held&&!initializationOnly||this.uncertain)throw refused('Message intake is fenced; no new native request dispatched');this.calls++;try{return await work();}finally{this.calls--;if(!this.calls)try{this.options.onMayBeIdle?.();}catch{/* Advisory only. */}}}
  private fenceContext(value:Readonly<AdminFenceContext>):Readonly<AdminFenceContext>{
   const context={fenceId:value.fenceId,commandId:value.commandId,purpose:value.purpose,instanceId:value.instanceId,dataScope:value.dataScope,...(value.serviceIdentity!==undefined?{serviceIdentity:serviceIdentity(value.serviceIdentity)}:{})};
   for(const key of ['fenceId','commandId','purpose','instanceId','dataScope'] as const)if(!token(context[key]))throw refused('Exact bounded message fence required');
@@ -107,6 +111,8 @@ export class MessageConnection {
   return this.starting??=(async()=>{
    const p=this.process=spawn(this.options.command,this.options.args??[],{cwd:this.options.cwd,env:{...process.env,...this.options.env},stdio:'pipe'});
    p.stderr.resume();p.on('error',()=>{this.closed=true;});p.on('exit',()=>{this.closed=true;});
+   // Do not construct an ACP writer until the operating system accepts the launch.
+   await once(p,'spawn');
    let bytes=0;const guard=new Transform({transform(chunk:Buffer,_encoding,callback){for(const b of chunk){bytes=b===10?0:bytes+1;if(bytes>2*1024*1024)return callback(Error('Native message frame exceeds bound'));}callback(null,chunk);}});guard.on('error',()=>p.kill());p.stdout.pipe(guard);
    this.client=new ClientSideConnection(()=>({sessionUpdate:async()=>{throw Error('Passive messages cannot own session updates');},requestPermission:async()=>({outcome:{outcome:'cancelled' as const}}),extNotification:async(method,params)=>{
     if(method!=='_amplifier/message/update')return;const bound=this.scopes.get(String(params.sessionId));if(!bound||!token(params.messageId)||!Number.isSafeInteger(params.revision)||(params.revision as number)<0||Buffer.byteLength(JSON.stringify(params))>32768)return;

@@ -49,7 +49,7 @@ export class NativeCapabilities {
  negotiateNaming=async():Promise<boolean>=>{
   if(!this.options.nativeNaming||!this.options.nativeNamingCapabilities||!this.options.readSessionTitle||!this.options.commitSessionTitle)return false;
   if(!this.namingNegotiation)this.namingNegotiation=(async()=>{
-   try{this.namingAvailable=namingMetadata(await this.options.nativeNamingCapabilities!());}catch{this.namingAvailable=false;}
+   try{const marker=await this.options.nativeNamingCapabilities!();this.namingAvailable=namingMetadata(marker);if(this.namingAvailable&&marker?.titlePreview===true)this.manifest.actions['session.titlePreview']={topic:'runtime-control',operation:'session.titlePreview',method:METHOD};}catch{this.namingAvailable=false;}
    if(this.namingAvailable)this.manifest.actions['session.naming']={topic:'runtime-control',operation:'session.naming',method:METHOD};
    return this.namingAvailable;
   })();return this.namingNegotiation;
@@ -182,6 +182,13 @@ export class NativeCapabilities {
   await this.negotiateBundleCommands();await this.negotiateContextClear();await this.negotiateNaming();
   if(['context.clear.review','context.clear','context.clear.receipt'].includes(request.operation)&&!this.contextClear)throw contextClearUnavailable();
   const advertised=Object.values(this.manifest.actions).find(row=>row.operation===request.operation&&row.topic===topic);if(!advertised)throw Error('Native action not advertised.');
+  if(request.operation==='session.titlePreview'){
+   if(scope==='host'||!this.namingAvailable||Object.keys(args).some(k=>!['id','sessionId'].includes(k))||['id','sessionId'].some(k=>Object.hasOwn(args,k)&&args[k]!==scope))throw Error('Title preview target must match the authenticated session.');
+   s.pending++;try{const result=await this.options.nativeNaming!(scope,'preview',{});
+    if(typeof result?.title!=='string'||result.title.length>200||!['saved','first-message','unnamed'].includes(result.source))throw Error('Invalid bounded native title preview.');
+    return {accepted:true,updates:[],invalidate:[],result,_meta:{}};
+   }finally{s.pending--;}
+  }
   if(request.operation==='session.naming'){
    if(scope==='host'||!this.namingAvailable)throw Error('Canonical naming is unavailable for this session.');
    s.pending++;

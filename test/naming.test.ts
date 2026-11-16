@@ -50,3 +50,25 @@ test('cached Host receipt cannot project an old title after manual rename',async
  assert.equal(retry.result.titleRevision,undefined);
  assert.deepEqual(f.calls.map(c=>c[1]),['read']);
 });
+
+test('title preview is negotiated, scoped and passive for both callers',async()=>{
+ for(const origin of ['ui','agent'] as const){
+  const f=fixture();f.options.nativeNamingCapabilities=async()=>({...marker,titlePreview:true});
+  f.options.nativeNaming=async(s,op,args)=>{f.calls.push([s,op,args]);assert.equal(op,'preview');assert.deepEqual(args,{});return {title:'First user message',source:'first-message'} as any;};
+  const p=createNativeCapabilities(f.options);await p.actionSchemas();assert.ok(p.manifest.actions['session.titlePreview']);
+  const request={channel:scope,topic:'runtime-control',operation:'session.titlePreview',version:1,commandId:'preview',args:{sessionId:scope}};
+  const r=await p.action(request,{...context,origin});assert.equal(r.result.title,'First user message');assert.deepEqual(r.updates,[]);assert.deepEqual(r.invalidate,[]);
+  assert.deepEqual(f.calls.map(row=>row[1]),['preview']);
+  await assert.rejects(p.action({...request,args:{sessionId:'ahp-session:/foreign'}},{...context,origin}));
+ }
+ const f=fixture();await f.provider.actionSchemas();assert.equal(f.provider.manifest.actions['session.titlePreview'],undefined);
+});
+
+test('first-use preparation completes before host guard while later manual edits still win',async()=>{
+ const f=fixture(),native=f.options.nativeNaming,read=f.options.readSessionTitle;let prepared=false;
+ f.options.nativeNamingCapabilities=async()=>({...marker,prepareGeneration:true});
+ f.options.nativeNaming=async(s,op,args)=>{if(op==='prepare'){prepared=true;return f.projection();}return native(s,op,args)};
+ f.options.readSessionTitle=async()=>{assert.ok(prepared);return read()};
+ const p=createNativeCapabilities(f.options),a=action({regenerate:true});
+ assert.equal((await p.action(a.request,a.context)).accepted,true);
+});

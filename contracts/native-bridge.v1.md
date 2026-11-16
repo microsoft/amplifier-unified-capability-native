@@ -248,7 +248,11 @@ Both returned objects expose the same `quiescenceParticipant`, default ID
 `native-message-metadata`, plus `activity()` and `close()`. Root registers the
 participant as required and maps all message actions to it. Initialization, history
 binding and every message RPC count as in-flight work. Acquisition refuses while
-busy, closed or uncertain; a held fence blocks all new native RPCs. Exact trusted
+busy, closed or uncertain; a held fence blocks history and message RPCs. Passive
+ACP initialization may still negotiate the actual owner during replacement
+composition, so the host can authenticate and settle its retained fence. It counts
+as in-flight work, never resolves a session or changes durable admission evidence,
+and remains refused when an independent message effect is unknown. Exact trusted
 release proofs are required, including service-specific proofs. A release marked
 unknown (or a rejected release attempt) retires the live pre-effect
 `admission-refused` rollback authority; only exact authenticated release proof can
@@ -350,3 +354,32 @@ authenticated release keeps the prior cold-reconciliation contract, including
 legacy-to-new ready release; no admission attempt is synthesized by that path.
 At the Native admin participant boundary, Host-only fence projection fields are
 removed before invoking the strict five-selector Native abort API.
+
+### Native administration distribution release
+
+After replacement, the administration participant uses the negotiated native
+`admin.lifecycle.reconcileRelease:{version:1,durable:true,receipt:true}` operation
+with the original five fence selectors and the host-authenticated exact release
+proof. It never reacquires an already durable distribution admission. Native
+validates the retained acquired lease, excludes actual native writers, and
+commits its release receipt and original intake removal atomically. The bridge
+keeps local intake held until that exact result is confirmed; a lost reply is
+reconciled from the original proof-bound native receipt after reconnecting.
+
+Mutable host phase and owner projections are not sent as native selectors.
+Older peers without this grant explicitly refuse cold distribution settlement
+before acquire or mutation. Missing original durable evidence is not proof of
+retirement; legacy installations require a separately qualified migration path.
+Service-stop and recovery still follow their respective contracts. Synthetic
+negotiation tests and actual installed native lost-reply tests live in
+[admin-release.test.ts](../test/admin-release.test.ts).
+
+### Optional unnamed-chat previews and first-use naming preparation
+Native naming metadata may additionally advertise titlePreview and
+prepareGeneration. Only the former advertises session.titlePreview: a bounded
+passive label read scoped to the authenticated selected session, shared by user
+and agent callers. It does not rename, project a title, invalidate catalogs,
+or open a worker. Native owns transcript bounds and saved-name precedence.
+Explicit generation uses the latter to adopt missing legacy naming metadata
+before capturing Host's title revision. Existing choices remain authoritative;
+later manual edits still invalidate the original generation guard.
